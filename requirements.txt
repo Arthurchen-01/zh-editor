@@ -1,0 +1,4 @@
+requests
+pywin32; sys_platform == "win32"
+pycryptodome; sys_platform == "win32"
+browser-cookie3; sys_platform == "darwin"

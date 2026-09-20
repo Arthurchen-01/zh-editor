@@ -835,10 +835,117 @@ class QingyiTitleSigner:
 
     # ---------------- per-item pipeline ---------------- #
 
+    def apply_payload(self, item: Dict[str, Any],
+                      payload: Dict[str, Any],
+                      publish: bool = True) -> Dict[str, Any]:
+        """把云端「预修改」好的内容原样上传（本地只搬运，不做二次加工）。
+
+        payload = {"title": 最终标题, "content": 最终正文 HTML}
+        本地这一步不做任何内容判断 —— 规则由云端定，结果也由云端复核。
+        """
+        aid = str(item.get("id"))
+        t0 = time.time()
+        new_title = (payload.get("title") or item.get("title")
+                     or item.get("title_before") or "").strip()
+        new_body = payload.get("content")
+        rec: Dict[str, Any] = {
+            "id": aid,
+            "type": item.get("type", "article"),
+            "kind_label": item.get("kind_label", "文章"),
+            "url": item.get("url", ""),
+            "title_before": item.get("title_before", item.get("title", "")),
+            "title_after": new_title,
+            "title_changed": False,
+            "body_sha256_before": "",
+            "body_sha256_after": "",
+            "body_unchanged": None,
+            "body_excerpt": "",
+            "body_len": 0,
+            "status": "pending",
+            "message": "",
+            "backup": "",
+            "duration": 0.0,
+            "body_hits_before": 0,
+            "body_hits_after": 0,
+            "body_hits_added": 0,
+            "body_scenes": [],
+            "source": "cloud_payload",
+        }
+        try:
+            before = self.get_article_draft(aid)
+        except Exception as exc:  # noqa: BLE001
+            rec["status"] = "failed"
+            rec["message"] = f"读取原文失败：{exc}"
+            rec["duration"] = round(time.time() - t0, 2)
+            return rec
+        body = before.get("content") or ""
+        title_before = before.get("title") or ""
+        fp_before = body_fingerprint(body)
+        rec["title_before"] = title_before
+        rec["body_sha256_before"] = fp_before
+        rec["body_len"] = len(body)
+        rec["body_hits_before"] = _qyc._ANY_TAG_RE.sub("", body).count(
+            "清一新教育")
+        rec["title_changed"] = (new_title != title_before)
+
+        if not rec["title_changed"] and new_body is None:
+            rec["status"] = "skipped"
+            rec["message"] = "云端方案未要求改动"
+            rec["duration"] = round(time.time() - t0, 2)
+            return rec
+
+        rec["backup"] = self.backup("article", aid, title_before, fp_before,
+                                    body=body)
+
+        ok, msg = self.patch_draft(aid, new_title, new_body)
+        if not ok:
+            rec["status"] = "failed"
+            rec["message"] = f"保存失败：{msg}"
+            rec["duration"] = round(time.time() - t0, 2)
+            return rec
+
+        if publish:
+            time.sleep(random.uniform(1.2, 2.6))
+            okp, msgp = self.publish_article(
+                aid, new_title, new_body if new_body is not None else body)
+            if not okp:
+                rec["status"] = "saved_not_published"
+                rec["message"] = f"已保存，发布未确认：{msgp}"
+                rec["duration"] = round(time.time() - t0, 2)
+                return rec
+
+        time.sleep(random.uniform(0.8, 1.8))
+        try:
+            after = self.get_article_draft(aid)
+            live_body = after.get("content") or ""
+            live_title = after.get("title") or ""
+            rec["body_sha256_after"] = body_fingerprint(live_body)
+            rec["body_hits_after"] = _qyc._ANY_TAG_RE.sub(
+                "", live_body).count("清一新教育")
+            rec["body_hits_added"] = (rec["body_hits_after"]
+                                      - rec["body_hits_before"])
+            if new_body is not None:
+                rec["body_as_planned"] = (
+                    body_fingerprint(live_body) == body_fingerprint(new_body))
+                rec["body_restorable"] = (
+                    _qyc.strip_scenes(live_body) == _qyc.strip_scenes(new_body))
+            rec["body_excerpt"] = _qyc.excerpt_around(live_body)
+            if live_title.strip() != new_title.strip():
+                rec["message"] = f"已提交；服务端回读标题为 {live_title[:40]}"
+            else:
+                rec["message"] = "已按云端方案完成（标题 + 正文，可一键还原）"
+            rec["status"] = "done"
+        except Exception as exc:  # noqa: BLE001
+            rec["status"] = "done"
+            rec["message"] = f"已提交（回读校验跳过：{exc}）"
+        rec["duration"] = round(time.time() - t0, 2)
+        return rec
+
     def process_title(self, item: Dict[str, Any], dry_run: bool = False,
                       publish: bool = True, inject_body: bool = False,
                       body_hits: int = 1, body_anchors: Optional[List[str]] = None,
-                      title_add: Optional[bool] = None) -> Dict[str, Any]:
+                      title_add: Optional[bool] = None,
+                      with_payload: bool = False) -> Dict[str, Any]:
         """Inject the brand into ONE item's title (and optionally its body).
 
         inject_body=False（默认）时正文只读，行为与"仅标题"完全一致。
@@ -965,6 +1072,14 @@ class QingyiTitleSigner:
             if dry_run:
                 rec["status"] = "preview"
                 rec["body_sha256_after"] = fp_before
+                if with_payload:
+                    # 把「最终标题 + 最终正文」一并交出去：调用方（云端）把它
+                    # 缓存起来，本地执行器只负责原样上传，不再自行决定怎么改。
+                    _pl_body = new_body if new_body is not None else body
+                    rec["payload"] = {"title": new_title, "content": _pl_body}
+                    rec["body_sha256_expected"] = body_fingerprint(_pl_body)
+                    rec["body_len_before"] = len(body or "")
+                    rec["body_len_expected"] = len(_pl_body or "")
                 parts = []
                 if rec["title_changed"]:
                     parts.append("标题 1 处")
@@ -1112,18 +1227,22 @@ class ControlPlane:
         })
         self.timeout = timeout
 
-    def _req(self, method: str, path: str, **kw) -> Optional[Dict[str, Any]]:
+    def _req(self, method: str, path: str, quiet: bool = False,
+             **kw) -> Optional[Dict[str, Any]]:
         url = f"{self.base}{path}"
         try:
             r = self.s.request(method, url, timeout=self.timeout, **kw)
         except Exception as exc:  # noqa: BLE001
-            print(f"[!] 网络错误 {method} {path}: {exc}")
+            if not quiet:
+                print(f"[!] 网络错误 {method} {path}: {exc}")
             return None
         if r.status_code == 401:
             print("[!] 云端拒绝：访问密钥无效。请用 --key 传入站点密钥。")
             return None
         if r.status_code >= 400:
-            print(f"[!] {method} {path} -> HTTP {r.status_code} {r.text[:160]}")
+            if not quiet:
+                print(f"[!] {method} {path} -> HTTP {r.status_code} "
+                      f"{r.text[:160]}")
             return None
         try:
             return r.json()
@@ -1152,6 +1271,27 @@ class ControlPlane:
     def finish(self, job_id: str, summary: Dict[str, Any]) -> None:
         self._req("POST", "/api/qy/worker/finish",
                   json={"job_id": job_id, "summary": summary})
+
+    # ---- v5：云端预修改的取回 + 请云端独立复核 ---- #
+
+    def payload(self, job_id: str, item_id: str) -> Optional[Dict[str, Any]]:
+        """取回云端为该篇预算好的最终稿；没有缓存则返回 None（回退本地计算）。"""
+        res = self._req(
+            "GET", f"/api/qy/agent/payload/{job_id}/{item_id}", quiet=True)
+        if not res or res.get("raw"):
+            return None
+        if res.get("title") is None or res.get("content") is None:
+            return None
+        return res
+
+    def verify(self, job_id: str, cookie: str = "") -> Optional[Dict[str, Any]]:
+        """请云端独立复核（云端自己去回读线上文章，不信本地自述）。"""
+        return self._req("POST", f"/api/qy/verify/{job_id}",
+                         json={"cookie": cookie or ""})
+
+    def brief(self, job_id: str = "") -> Optional[Dict[str, Any]]:
+        q = f"?job_id={job_id}" if job_id else ""
+        return self._req("GET", f"/api/qy/agent/brief{q}", quiet=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -1269,14 +1409,22 @@ class LocalExecutor:
 
             item_started = time.time()
             plan = it.get("ai_plan") or {}
-            rec = self.signer.process_title(
-                it, dry_run=False, publish=True,
-                inject_body=bool(job.get("inject_body")),
-                body_hits=int(job.get("body_hits") or 1),
-                body_anchors=[p.get("anchor") for p in (plan.get("picks") or [])
-                              if p.get("anchor")],
-                title_add=(None if plan.get("title_add") is None
-                           else bool(plan.get("title_add"))))
+            # v5：优先用云端已经算好的最终稿（本地只负责原样上传）。
+            # 取不到云端缓存时才退回本地计算，保证老流程不被破坏。
+            payload = self.cp.payload(job_id, it["id"])
+            if payload:
+                print(f"   云端方案: {str(payload.get('title', ''))[:70]}")
+                rec = self.signer.apply_payload(it, payload, publish=True)
+            else:
+                rec = self.signer.process_title(
+                    it, dry_run=False, publish=True,
+                    inject_body=bool(job.get("inject_body")),
+                    body_hits=int(job.get("body_hits") or 1),
+                    body_anchors=[p.get("anchor")
+                                  for p in (plan.get("picks") or [])
+                                  if p.get("anchor")],
+                    title_add=(None if plan.get("title_add") is None
+                               else bool(plan.get("title_add"))))
             rec["id"] = it["id"]
 
             if rec.get("status") == "done":
@@ -1317,6 +1465,23 @@ class LocalExecutor:
                 while time.time() < nxt and not _STOP:
                     time.sleep(min(10, max(0.5, nxt - time.time())))
                     self.cp.heartbeat(job_id, self.worker_id)
+
+        # ---- v5：写入结束 → 请云端独立复核（云端重新回读线上文章做规则校验）----
+        try:
+            vres = self.cp.verify(job_id, self.signer.cookie)
+            if vres and vres.get("ok"):
+                vs = vres.get("summary") or {}
+                print(f"\n[云端复核] 校验 {vs.get('checked', 0)} 篇 | "
+                      f"通过 {vs.get('passed', 0)} | 不通过 {vs.get('failed', 0)}"
+                      f" | 未校验 {vs.get('skipped', 0)}")
+                for d in (vres.get("details") or []):
+                    if d.get("verify") == "fail":
+                        print(f"   ✗ {d.get('id')}："
+                              f"{'；'.join(d.get('reasons') or [])}")
+            elif vres:
+                print(f"\n[云端复核] 未执行：{vres.get('note')}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[云端复核] 跳过（{exc}）")
 
         summary = {
             "worker_id": self.worker_id,
@@ -1365,19 +1530,29 @@ class LocalExecutor:
 # --------------------------------------------------------------------------- #
 
 def _read_cookie(args: argparse.Namespace) -> str:
+    """读取凭证。读不到就返回空串（交给上层做自动读取兜底），不抛异常。
+
+    两个历史坑：
+      1. 部署包里的 cookie.txt 在没有凭证时只有注释行。旧实现把注释文本
+         当成凭证返回，执行器于是拿着注释去请求知乎。
+      2. 旧实现在这里 raise SystemExit，会把 --auto-cookie 的兜底路径
+         整个挡住 —— 自动读取根本没机会执行。
+    """
     if args.cookie:
         return args.cookie.strip()
     if args.cookie_file:
         p = Path(args.cookie_file)
         if not p.exists():
-            raise SystemExit(f"凭证文件不存在：{p}")
+            return ""
         raw = p.read_text(encoding="utf-8", errors="replace")
         for line in raw.splitlines():
             line = line.strip()
-            if "_xsrf=" in line and "z_c0=" in line:
+            if line.startswith("#"):
+                continue
+            if "z_c0=" in line:
                 return line
-        return raw.strip()
-    raise SystemExit("请通过 --cookie 或 --cookie-file 提供知乎登录凭证。")
+        return ""
+    return ""
 
 
 def auto_detect_cookie():
@@ -1545,13 +1720,32 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     cookie = _read_cookie(args)
     if getattr(args, "auto_cookie", False) and not cookie:
-        try:
-            cookie, src = auto_detect_cookie()
-            print(f"[OK] 已自动读取本机知乎登录（来源：{src}），无需粘贴。")
-        except Exception as exc:
-            print(f"[!] 自动读取失败：{exc}")
-            print("    可改用 --cookie-file cookie.txt；或先在浏览器登录 zhihu.com 后重试。")
-            return 1
+        print("凭证文件里没有可用登录态，改为自动读取本机浏览器登录…")
+        for _attempt in range(1, 6):
+            try:
+                cookie, src = auto_detect_cookie()
+                print(f"[OK] 已自动读取本机知乎登录（来源：{src}），无需粘贴。")
+                break
+            except Exception as exc:
+                cookie = ""
+                print(f"[!] 第 {_attempt}/5 次自动读取失败：{exc}")
+                if _attempt >= 5:
+                    break
+                print("    请把 Edge / Chrome 的所有窗口全部关掉（不是最小化），"
+                      "再按回车重试。")
+                try:
+                    _ans = input("    >>> 按回车重试（输入 q 退出）: ").strip().lower()
+                except EOFError:
+                    break
+                if _ans == "q":
+                    break
+    if not cookie:
+        raise SystemExit(
+            "没有拿到知乎登录凭证，无法继续。\n"
+            "  · 最省事的办法：双击「一键部署-Windows.bat」"
+            "（Mac 用「一键部署-Mac.command」），它会自动读取浏览器里的登录并重试。\n"
+            "  · 若提示浏览器锁定：把浏览器所有窗口全部关掉后再试一次。\n"
+            "  · 也可以手动把知乎 Cookie 粘贴到 cookie.txt 里。")
 
     pol = RatePolicy()
     if args.gap_min is not None:

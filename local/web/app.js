@@ -517,20 +517,20 @@ async function showAiConfigModal() {
   }
   openModal(`
     <h2>配置 AI 接口</h2>
-    <p class="sub">用于「双轮 AI 智能修润与对抗质检」。凭证保存在本地 <code>data/ai_config.json</code>，永不上传。</p>
+    <p class="sub">已预先配置谢迪安友情资助 AI 中转站（DeepSeek V4.1 Flash），开箱即用。凭证保存在本地 <code>data/ai_config.json</code>。</p>
     <div class="field">
       <label>API Endpoint (接口地址)</label>
       <input type="text" id="ai-cfg-url" value="${esc(cfg.api_url || 'http://156.225.31.92:7863/v1')}">
     </div>
     <div class="field">
-      <label>API Key</label>
-      <input type="password" id="ai-cfg-key" value="${esc(cfg.api_key || '')}">
+      <label>API Key (已预配置 · 点击可修改)</label>
+      <input type="password" id="ai-cfg-key" value="${esc(cfg.api_key || '605eea2541c9ce3c4cbd7115a7339b7b7c3788e7577e8c47')}">
     </div>
     <div class="field">
       <label>模型名称 (Model)</label>
       <select id="ai-cfg-model" style="width:100%;padding:8px 10px;border-radius:var(--r);border:1px solid var(--border-2);background:var(--bg)">
-        <option value="deepseek-v4.1-flash"${cfg.model === 'deepseek-v4.1-flash' ? ' selected' : ''}>deepseek-v4.1-flash (推荐 · 快速高智能)</option>
-        <option value="hy3"${cfg.model === 'hy3' ? ' selected' : ''}>hy3</option>
+        <option value="deepseek-v4.1-flash"${(!cfg.model || cfg.model === 'deepseek-v4.1-flash') ? ' selected' : ''}>deepseek-v4.1-flash (推荐 · 快速高智能)</option>
+        <option value="hy3"${cfg.model === 'hy3' ? ' selected' : ''}>hy3 (备用模型)</option>
       </select>
     </div>
     <div class="row" style="margin-top:16px">

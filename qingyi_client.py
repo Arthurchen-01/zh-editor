@@ -335,14 +335,17 @@ def _generate_zhihu_qr_base64() -> Dict[str, Any]:
         "Referer": "https://www.zhihu.com/signin",
         "Origin": "https://www.zhihu.com",
     })
-    s.get("https://www.zhihu.com/signin", timeout=10)
-    s.post("https://www.zhihu.com/udid", timeout=10)
-    r = s.post("https://www.zhihu.com/api/v3/account/api/login/qrcode", timeout=10)
-    if r.status_code != 200:
-        raise RuntimeError(f"获取知乎二维码失败 HTTP {r.status_code}")
-    data = r.json()
-    token = data.get("token") or ""
-    link = data.get("link") or f"https://www.zhihu.com/account/scan/login/{token}?/api/login/qrcode"
+    token = ""
+    link = "https://www.zhihu.com/signin"
+    try:
+        s.post("https://www.zhihu.com/udid", timeout=6)
+        r = s.post("https://www.zhihu.com/api/v3/account/api/login/qrcode", timeout=6)
+        if r.status_code == 200:
+            data = r.json()
+            token = data.get("token") or ""
+            link = data.get("link") or f"https://www.zhihu.com/account/scan/login/{token}?/api/login/qrcode"
+    except Exception:
+        pass
 
     b64_img = ""
     try:
@@ -361,7 +364,7 @@ def _generate_zhihu_qr_base64() -> Dict[str, Any]:
         "token": token,
         "link": link,
         "qr_base64": b64_img,
-        "expires_at": data.get("expires_at") or (int(time.time()) + 180),
+        "expires_at": int(time.time()) + 180,
     }
 
 

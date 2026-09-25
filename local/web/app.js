@@ -788,30 +788,261 @@ function bind() {
     if (item) openArticle(item.dataset.id).catch(err => toast(err.message, 'bad'));
   });
 
-  $('#btn-login').onclick = () => {
-    openModal(`<h2>填入知乎 Cookie</h2>
-      <p class="sub">浏览器打开 zhihu.com 并登录 → 按 F12 → Network →
-        随便点一个请求 → 复制 Request Headers 里的 <b>cookie</b> 整行 →
-        粘贴到下面。<br><br>
-        凭证只存在你本机的 <code>cookie.txt</code>，不会上传到任何服务器。</p>
-      <div class="field"><textarea id="ck" placeholder="z_c0=…; _zap=…; d_c0=…"></textarea></div>
-      <div class="row"><button class="btn" onclick="closeModal()">取消</button>
-        <button class="btn primary" id="ck-go">保存并验证</button></div>`);
-    $('#ck-go').onclick = async () => {
-      const v = $('#ck').value.trim();
-      if (!v) return toast('还没粘贴', 'bad');
-      try {
-        const r = await api('/api/login', { cookie: v });
-        if (!r.ok) return toast(r.error || '失败', 'bad');
-        const a = r.account || {};
-        toast(a.name ? `已登录：${a.name}` : 'Cookie 已保存', 'good');
-        closeModal(); await loadStatus(); await loadList();
-      } catch (e) { toast('失败：' + e.message, 'bad'); }
-    };
-  };
+  const btnLogin = $('#btn-login');
+  if (btnLogin) btnLogin.onclick = () => showLoginModal();
 
   const btnAi = $('#btn-ai-cfg');
   if (btnAi) btnAi.onclick = () => showAiConfigModal();
+
+  const btnCheckUp = $('#btn-check-update');
+  if (btnCheckUp) btnCheckUp.onclick = () => checkForUpdates(false);
+}
+
+/* ─────────────── 智能免 F12 登录 ─────────────── */
+
+async function showLoginModal() {
+  openModal(`
+    <h2>知乎账号登录认证</h2>
+    <p class="sub">支持自动读取本机浏览器登录或手机知乎 App 扫码，零代码、彻底免 F12。</p>
+    
+    <!-- 通道 1: 自动读取本机浏览器 -->
+    <div class="auth-channel highlight">
+      <div class="auth-header">
+        <span class="auth-title">🚀 自动读取本机 Edge / Chrome 登录</span>
+        <span class="badge" style="background:#EAD8C7;color:#873800;font-weight:600">推荐首选</span>
+      </div>
+      <div class="auth-desc">直接解密并提取本机浏览器已登录的知乎 Cookie，一键秒读。</div>
+      <div class="row" style="justify-content:flex-start;margin:0 0 6px">
+        <button class="btn primary" id="auth-btn-autodetect">一键读取本机登录</button>
+        <button class="btn" id="auth-btn-close-browser" style="display:none;color:var(--danger)">🔒 关闭浏览器并读取</button>
+      </div>
+      <div id="auth-autodetect-msg" style="font-size:11.5px;color:var(--text-2);margin-top:6px"></div>
+    </div>
+
+    <!-- 通道 2: 手机知乎扫码登录 -->
+    <div class="auth-channel">
+      <div class="auth-header">
+        <span class="auth-title">📱 手机知乎扫码登录</span>
+        <button class="btn mini" id="auth-btn-qr-start">生成扫码二维码</button>
+      </div>
+      <div class="auth-desc">使用手机知乎 App 扫一扫即可安全授权登录。</div>
+      <div id="auth-qr-container" style="display:none" class="auth-qr-box">
+        <img id="auth-qr-img" class="auth-qr-img" src="" alt="知乎登录二维码">
+        <div id="auth-qr-status" class="auth-qr-status">⏳ 正在等待手机知乎扫码…</div>
+      </div>
+    </div>
+
+    <!-- 通道 3: 从云端凭证柜同步 -->
+    <div class="auth-channel">
+      <div class="auth-header">
+        <span class="auth-title">☁️ 从云端凭证柜同步</span>
+        <button class="btn mini" id="auth-btn-cloud">一键同步</button>
+      </div>
+      <div class="auth-desc">若曾使用过浏览器扩展程序或云端扫码，可直接从云端同步凭证。</div>
+      <div id="auth-cloud-msg" style="font-size:11.5px;color:var(--text-2)"></div>
+    </div>
+
+    <!-- 通道 4: 手动粘贴 (折叠备用) -->
+    <details class="auth-details">
+      <summary>高级选项：手动粘贴 Cookie (备用)</summary>
+      <div style="margin-top:10px">
+        <textarea id="ck" style="min-height:80px" placeholder="z_c0=…; _zap=…; d_c0=…"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="btn mini" id="ck-go">保存手动 Cookie</button>
+        </div>
+      </div>
+    </details>
+
+    <div class="row" style="margin-top:16px">
+      <button class="btn" onclick="closeModal()">关闭</button>
+    </div>
+  `);
+
+  let qrTimer = null;
+
+  // 绑定通道 1: 自动读取
+  const btnAuto = $('#auth-btn-autodetect');
+  const btnCloseBr = $('#auth-btn-close-browser');
+  const msgAuto = $('#auth-autodetect-msg');
+
+  async function doAutoDetect(closeBrowser = false) {
+    msgAuto.innerHTML = '<i>正在解密扫描本机 Edge/Chrome 登录数据…</i>';
+    try {
+      const res = await api('/api/auth/auto_detect', { close_browser: closeBrowser });
+      if (res.ok) {
+        msgAuto.innerHTML = `<span style="color:var(--ok)">✓ 读取成功（来源: ${esc(res.source || '本机浏览器')}），正在进入工作台…</span>`;
+        toast(`已登录：${(res.account && res.account.name) || '成功'}`, 'good');
+        setTimeout(() => { closeModal(); loadStatus(); loadList(); }, 800);
+      } else {
+        if (res.locked) {
+          msgAuto.innerHTML = `<span style="color:var(--danger)">⚠️ 浏览器正在运行锁定了凭据文件。请点击右侧按钮秒级关闭并提取：</span>`;
+          btnCloseBr.style.display = 'inline-block';
+        } else {
+          msgAuto.innerHTML = `<span style="color:var(--danger)">${esc(res.error || '未检测到知乎登录态')}</span>`;
+        }
+      }
+    } catch (e) {
+      msgAuto.innerHTML = `<span style="color:var(--danger)">提取失败：${esc(e.message)}</span>`;
+    }
+  }
+
+  btnAuto.onclick = () => doAutoDetect(false);
+  btnCloseBr.onclick = () => doAutoDetect(true);
+
+  // 绑定通道 2: 扫码登录
+  const btnQr = $('#auth-btn-qr-start');
+  const qrBox = $('#auth-qr-container');
+  const qrImg = $('#auth-qr-img');
+  const qrStatus = $('#auth-qr-status');
+
+  btnQr.onclick = async () => {
+    btnQr.disabled = true;
+    btnQr.textContent = '正在获取…';
+    try {
+      const res = await api('/api/auth/qr_start', {});
+      if (res.ok && res.qr_base64) {
+        qrImg.src = res.qr_base64;
+        qrBox.style.display = 'flex';
+        qrStatus.textContent = '⏳ 请使用手机【知乎 App】扫一扫';
+        btnQr.textContent = '刷新二维码';
+        btnQr.disabled = false;
+
+        if (qrTimer) clearInterval(qrTimer);
+        qrTimer = setInterval(async () => {
+          try {
+            const p = await api(`/api/auth/qr_poll?token=${encodeURIComponent(res.token)}`);
+            if (p.status === 'scanned') {
+              qrStatus.textContent = '📱 手机已扫码！请在手机上点击确认登录…';
+            } else if (p.status === 'success') {
+              clearInterval(qrTimer);
+              qrStatus.innerHTML = '<b style="color:var(--ok)">✓ 扫码登录成功！正在进入…</b>';
+              toast(`欢迎：${(p.account && p.account.name) || '知乎用户'}`, 'good');
+              setTimeout(() => { closeModal(); loadStatus(); loadList(); }, 800);
+            } else if (p.status === 'expired') {
+              clearInterval(qrTimer);
+              qrStatus.textContent = '❌ 二维码已过期，请点击刷新。';
+            }
+          } catch(e) {}
+        }, 1500);
+      } else {
+        toast(res.error || '获取二维码失败', 'bad');
+        btnQr.disabled = false;
+        btnQr.textContent = '重新生成';
+      }
+    } catch (e) {
+      toast('请求失败：' + e.message, 'bad');
+      btnQr.disabled = false;
+      btnQr.textContent = '重新生成';
+    }
+  };
+
+  // 绑定通道 3: 云端同步
+  const btnCloud = $('#auth-btn-cloud');
+  const msgCloud = $('#auth-cloud-msg');
+  btnCloud.onclick = async () => {
+    btnCloud.disabled = true;
+    msgCloud.innerHTML = '<i>正在查询云端凭证柜…</i>';
+    try {
+      const res = await api('/api/auth/cloud_sync');
+      if (res.ok) {
+        msgCloud.innerHTML = '<span style="color:var(--ok)">✓ 云端同步成功！</span>';
+        toast(`已从云端同步凭证：${(res.account && res.account.name) || '成功'}`, 'good');
+        setTimeout(() => { closeModal(); loadStatus(); loadList(); }, 800);
+      } else {
+        msgCloud.innerHTML = `<span style="color:var(--danger)">${esc(res.error || '云端凭证柜为空')}</span>`;
+        btnCloud.disabled = false;
+      }
+    } catch(e) {
+      msgCloud.innerHTML = `<span style="color:var(--danger)">同步失败：${esc(e.message)}</span>`;
+      btnCloud.disabled = false;
+    }
+  };
+
+  // 绑定通道 4: 手动粘贴
+  $('#ck-go').onclick = async () => {
+    const v = $('#ck').value.trim();
+    if (!v) return toast('还没粘贴', 'bad');
+    try {
+      const r = await api('/api/login', { cookie: v });
+      if (!r.ok) return toast(r.error || '失败', 'bad');
+      const a = r.account || {};
+      toast(a.name ? `已登录：${a.name}` : 'Cookie 已保存', 'good');
+      closeModal(); await loadStatus(); await loadList();
+    } catch (e) { toast('失败：' + e.message, 'bad'); }
+  };
+}
+
+/* ─────────────── 远程更新与启动检测 ─────────────── */
+
+async function checkForUpdates(silent = true) {
+  try {
+    const res = await api('/api/system/check_update');
+    if (res.ok && res.has_update) {
+      showUpdateBanner(res);
+      if (!silent) {
+        showUpdateModal(res);
+      }
+    } else {
+      if (!silent) {
+        toast(`当前已是最新版本 (v${res.current_version || '1.1.0'})`, 'good');
+      }
+    }
+  } catch (e) {
+    if (!silent) toast('检查更新失败：' + e.message, 'bad');
+  }
+}
+
+function showUpdateBanner(upInfo) {
+  let b = $('#update-banner');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'update-banner';
+    b.className = 'update-banner';
+    const app = $('#app');
+    app.parentNode.insertBefore(b, app);
+  }
+  b.innerHTML = `
+    <div class="update-banner-left">
+      <span class="update-banner-tag">新版本</span>
+      <span>发现新版本 <b>v${esc(upInfo.latest_version)}</b>（当前 v${esc(upInfo.current_version)}）：${esc(upInfo.release_notes || '支持一键免 F12 登录与远程自动更新')}</span>
+    </div>
+    <div class="update-banner-actions">
+      <button class="btn btn-sm primary" id="btn-banner-update">一键自动更新并重启</button>
+      <button class="btn btn-sm" id="btn-banner-dismiss">稍后</button>
+    </div>
+  `;
+  $('#btn-banner-update').onclick = () => doApplyUpdate(upInfo.download_url);
+  $('#btn-banner-dismiss').onclick = () => b.remove();
+}
+
+function showUpdateModal(upInfo) {
+  openModal(`
+    <h2>发现新版本 v${esc(upInfo.latest_version)}</h2>
+    <p class="sub">发布时间：${esc(upInfo.release_date || '最新')} ｜ 当前版本：v${esc(upInfo.current_version)}</p>
+    <div style="background:var(--bg-code);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-size:12px;line-height:1.6;white-space:pre-wrap;margin-bottom:14px">${esc(upInfo.release_notes || '常规性能提升与体验优化')}</div>
+    <div class="row">
+      <button class="btn" onclick="closeModal()">稍后提醒</button>
+      <button class="btn primary" id="modal-btn-update">立即一键更新并重启</button>
+    </div>
+  `);
+  $('#modal-btn-update').onclick = () => {
+    closeModal();
+    doApplyUpdate(upInfo.download_url);
+  };
+}
+
+async function doApplyUpdate(downloadUrl) {
+  try {
+    toast('正在连接云端下载更新，请稍候…', 'good');
+    const res = await api('/api/system/apply_update', { download_url: downloadUrl });
+    if (res.ok && res.task_id) {
+      runTask(res.task_id, '一键自动更新并重启');
+    } else {
+      toast(res.error || '启动更新失败', 'bad');
+    }
+  } catch (e) {
+    toast('更新异常：' + e.message, 'bad');
+  }
 }
 
 /* ─────────────── 启动 ─────────────── */
@@ -821,6 +1052,8 @@ function bind() {
   try {
     await loadStatus();
     await loadList();
+    // 软件启动时自动执行云端远程更新检查
+    checkForUpdates(true);
   } catch (e) {
     toast('初始化失败：' + e.message, 'bad');
   }

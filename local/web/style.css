@@ -434,3 +434,49 @@ a:hover { text-decoration: underline; }
   .nav-item span { font-size: 11px; }
   .nav-item em { display: none; }
 }
+
+/* ───────────────────────── 自动更新横幅 ───────────────────────── */
+
+.update-banner {
+  background: #FBF3ED; border-bottom: 1px solid #EAD8C7;
+  color: #383734; padding: 9px 18px; font-size: 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; z-index: 40;
+}
+.update-banner-left { display: flex; align-items: center; gap: 8px; }
+.update-banner-tag {
+  background: #CC5500; color: #fff; font-size: 10.5px;
+  padding: 1px 6px; border-radius: 4px; font-weight: 600;
+}
+.update-banner-actions { display: flex; align-items: center; gap: 8px; }
+
+/* ───────────────────────── 免 F12 智能认证 ───────────────────────── */
+
+.auth-channel {
+  border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--bg); padding: 14px 16px; margin-bottom: 12px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.auth-channel:hover { border-color: var(--border-2); }
+.auth-channel.highlight {
+  border-color: #EAD8C7; background: #FAF9F5;
+}
+.auth-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px;
+}
+.auth-title { font-weight: 600; font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 6px; }
+.auth-desc { font-size: 11.5px; color: var(--text-2); line-height: 1.5; margin-bottom: 10px; }
+.auth-qr-box {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 12px; background: #fff; border-radius: var(--r); border: 1px solid var(--border);
+  margin-top: 8px;
+}
+.auth-qr-img { width: 160px; height: 160px; object-fit: contain; }
+.auth-qr-status { font-size: 11.5px; color: var(--text-2); margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+.auth-details {
+  margin-top: 14px; font-size: 11.5px; color: var(--text-2);
+}
+.auth-details summary { cursor: pointer; user-select: none; color: var(--text-3); }
+.auth-details summary:hover { color: var(--text); }
+

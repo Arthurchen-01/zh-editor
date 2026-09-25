@@ -52,6 +52,8 @@ import qycheck as qc  # noqa: E402
 import qydocx as qd  # noqa: E402
 import qyplane as qp  # noqa: E402
 import qyai  # noqa: E402
+import qyauth  # noqa: E402
+import qyupdate  # noqa: E402
 
 WEB_DIR = _HERE / "web"
 EXPORT_DIR = _ROOT / "exports"
@@ -60,7 +62,7 @@ DB_FILE = _ROOT / "data" / "qyedu.db"
 IMG_CACHE = _ROOT / "data" / "imgcache"
 
 APP_NAME = "清一新教育 · 文章工作台"
-VERSION = "1.0"
+VERSION = "1.1.0"
 
 
 def _now() -> int:
@@ -146,8 +148,10 @@ class TaskRunner:
 
 class Workbench:
     def __init__(self, allow_write: bool = False,
-                 db: Optional[Path] = None) -> None:
+                 db: Optional[Path] = None,
+                 server_url: str = "https://zh.samuraiguan.cloud") -> None:
         self.allow_write = bool(allow_write)
+        self.server_url = server_url.rstrip("/")
         self.store = qs.Store(db or DB_FILE)
         self.tasks = TaskRunner()
         self.token = secrets.token_urlsafe(24)
@@ -163,20 +167,20 @@ class Workbench:
     def _read_cookie(self) -> str:
         try:
             if COOKIE_FILE.exists():
-                return COOKIE_FILE.read_text(encoding="utf-8").strip()
+                return qyauth.clean_cookie_str(COOKIE_FILE.read_text(encoding="utf-8").strip())
         except Exception:  # noqa: BLE001
             pass
         return ""
 
     def set_cookie(self, cookie: str) -> Dict[str, Any]:
-        cookie = (cookie or "").strip()
+        cookie = qyauth.clean_cookie_str(cookie)
         if not cookie:
             return {"ok": False, "error": "Cookie 为空"}
         if "z_c0" not in cookie:
             return {"ok": False,
                     "error": "这段文本里没有 z_c0，多半不是知乎的 Cookie"}
         with self._lock:
-            COOKIE_FILE.write_text(cookie, encoding="utf-8")
+            qyauth.save_cookie_to_disk(cookie)
             try:
                 os.chmod(COOKIE_FILE, 0o600)
             except Exception:  # noqa: BLE001
@@ -185,12 +189,66 @@ class Workbench:
             self._plane = None
         return {"ok": True}
 
+    # ---------------- 智能免 F12 登录 ---------------- #
+
+    def auth_auto_detect(self, close_browser: bool = False) -> Dict[str, Any]:
+        """一键从 Edge/Chrome 自动读取知乎登录态。"""
+        res = qyauth.auto_detect_browser_cookie(close_browser=close_browser)
+        if res.get("ok") and res.get("cookie"):
+            set_res = self.set_cookie(res["cookie"])
+            if set_res.get("ok"):
+                try:
+                    res["account"] = self.plane().account()
+                except Exception as exc:
+                    res["account"] = {"error": str(exc)[:200]}
+        return res
+
+    def auth_qr_start(self) -> Dict[str, Any]:
+        """生成知乎官方扫码登录二维码。"""
+        return qyauth.start_qr_login()
+
+    def auth_qr_poll(self, token: str) -> Dict[str, Any]:
+        """轮询知乎扫码状态。"""
+        res = qyauth.poll_qr_login(token)
+        if res.get("ok") and res.get("status") == "success" and res.get("cookie"):
+            set_res = self.set_cookie(res["cookie"])
+            if set_res.get("ok"):
+                try:
+                    res["account"] = self.plane().account()
+                except Exception as exc:
+                    res["account"] = {"error": str(exc)[:200]}
+        return res
+
+    def auth_cloud_sync(self) -> Dict[str, Any]:
+        """从云端凭证柜同步知乎 Cookie。"""
+        res = qyauth.sync_cloud_credential(self.server_url)
+        if res.get("ok") and res.get("cookie"):
+            set_res = self.set_cookie(res["cookie"])
+            if set_res.get("ok"):
+                try:
+                    res["account"] = self.plane().account()
+                except Exception as exc:
+                    res["account"] = {"error": str(exc)[:200]}
+        return res
+
+    # ---------------- 远程检查更新与自动热更新 ---------------- #
+
+    def check_update(self) -> Dict[str, Any]:
+        return qyupdate.check_remote_update(VERSION, self.server_url)
+
+    def apply_update(self, download_url: str, t: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        def _cb(pct: int, msg: str) -> None:
+            if t:
+                self.tasks.step(t, pct, 100, msg)
+                self.tasks.say(t, msg)
+        return qyupdate.perform_background_update(download_url, progress_cb=_cb)
+
     def plane(self) -> qp.LocalPlane:
         with self._lock:
             if self._plane is None:
                 if not self._cookie:
                     raise RuntimeError(
-                        "还没有登录。请先在上方填入知乎 Cookie。")
+                        "还没有登录。请点击左下角「登录认证」使用自动读取或扫码登录。")
                 self._plane = qp.LocalPlane(
                     self._cookie, store=self.store,
                     backup_dir=_ROOT / "data" / "qyedu_backup")
@@ -208,6 +266,8 @@ class Workbench:
                 acct = {"error": str(exc)[:200]}
         return {
             "app": APP_NAME, "version": VERSION,
+            "server_url": self.server_url,
+            "remote_connected": True,
             "logged_in": bool(self._cookie),
             "cookie_len": len(self._cookie),
             "account": acct,
@@ -790,6 +850,15 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/ai/config":
             return self._json({"ok": True, "config": qyai.load_ai_config()})
 
+        if p == "/api/auth/qr_poll":
+            return self._json(wb.auth_qr_poll(g("token")))
+
+        if p == "/api/auth/cloud_sync":
+            return self._json(wb.auth_cloud_sync())
+
+        if p == "/api/system/check_update":
+            return self._json(wb.check_update())
+
         return self._err(RuntimeError(f"未知接口 {p}"), 404)
 
     # ---------- POST API ---------- #
@@ -805,6 +874,22 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:  # noqa: BLE001
                     r["account"] = {"error": str(exc)[:200]}
             return self._json(r)
+
+        if p == "/api/auth/auto_detect":
+            return self._json(wb.auth_auto_detect(close_browser=bool(b.get("close_browser"))))
+
+        if p == "/api/auth/qr_start":
+            return self._json(wb.auth_qr_start())
+
+        if p == "/api/system/apply_update":
+            dl_url = str(b.get("download_url") or f"{wb.server_url}/api/qy/download/windows")
+
+            def _job(t: Dict[str, Any]) -> Any:
+                wb.tasks.say(t, f"开始连接云端更新服务：{dl_url}")
+                return wb.apply_update(dl_url, t=t)
+
+            return self._json({"ok": True,
+                               "task_id": wb.tasks.spawn("一键自动更新", _job)})
 
         if p == "/api/ai/config":
             qyai.save_ai_config(

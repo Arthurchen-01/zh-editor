@@ -371,11 +371,11 @@ def _generate_zhihu_qr_base64() -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 # --------------------------------------------------------------------------- #
-# 李想合规专版 · 双轮 AI 审核与智能修润引擎 (Liza Compliance Engine)
+# 深度合规专版 · 双轮 AI 审核与智能修润引擎 (Liza Compliance Engine)
 # --------------------------------------------------------------------------- #
 
 class LizaComplianceEngine:
-    """李想老师（Liza）团队知乎文章敏感词排查与智能修润引擎
+    """知乎文章风控与深度合规知乎文章敏感词排查与智能修润引擎
 
     严格落实团队最新合规要求：
     1. 《与神对话》全量清零：禁止书名，严禁使用“ysdh”拼音缩写避审；替换为“看了一本书”或“书中说”；
@@ -393,7 +393,7 @@ class LizaComplianceEngine:
             "pattern": re.compile(r"(《\s*与\s*神\s*对\s*话\s*》|与神对话|神说|与神交流)", re.I),
             "prohibited_abbr": re.compile(r"\b(ysdh|YSDH)\b", re.I),
             "default_replace": "看了一本书",
-            "reason": "李想老师指令：全量删除《与神对话》字眼，严禁使用拼音缩写“ysdh”避审；书名可替换为“看了一本书”或“书中说”，书理如合乎逻辑可保留。",
+            "reason": "合规标准要求：全量删除《与神对话》字眼，严禁使用拼音缩写“ysdh”避审；书名可替换为“看了一本书”或“书中说”，书理如合乎逻辑可保留。",
         },
         {
             "id": "soul_sun",
@@ -402,7 +402,7 @@ class LizaComplianceEngine:
             "pattern": re.compile(r"([^。！？\n]*?(?:小灵魂与太阳|小灵魂|你是光|把光遮住)[^。！？\n]*?[。！？\n]?)", re.I),
             "default_replace": "",
             "is_block_delete": True,
-            "reason": "李想老师特别指示：“尤其是小灵魂与太阳这个故事不能留”，必须整段剔除，避免被外界恶意关联玄学邪说。",
+            "reason": "风控重点提示：“尤其是小灵魂与太阳这个故事不能留”，必须整段剔除，避免被外界恶意关联玄学邪说。",
         },
         {
             "id": "dark_retreat",
@@ -418,7 +418,7 @@ class LizaComplianceEngine:
                 "慧心课": "认知深化课",
                 "辟谷": "清淡断食",
             },
-            "reason": "李想老师指示：慧心课、黑关与闭关容易被误解炒作，需规范为“深度内省”、“专注研学”等现代教育表述。",
+            "reason": "教育用语规范：慧心课、黑关与闭关容易被误解炒作，需规范为“深度内省”、“专注研学”等现代教育表述。",
         },
         {
             "id": "spiritual_words",
@@ -436,7 +436,7 @@ class LizaComplianceEngine:
                 "宇宙能量": "自然规律",
                 "宇宙法则": "客观规律",
             },
-            "reason": "李想老师强调：“疗愈”、“灵性”、“修行”等措辞需调整，防止被关联到宗教迷信或非理性宣导。",
+            "reason": "规范化建议：“疗愈”、“灵性”、“修行”等措辞需调整，防止被关联到宗教迷信或非理性宣导。",
         },
         {
             "id": "diet_soften",
@@ -444,7 +444,7 @@ class LizaComplianceEngine:
             "severity": "MEDIUM",
             "pattern": re.compile(r"(只能吃(?:黄豆酱|米糊|咸菜)[^。！？\n]*|黄豆酱配米饭|饿肚子|忍饥挨饿)", re.I),
             "default_replace": "选择简单清淡饮食",
-            "reason": "李想老师要求：只能吃黄豆酱配米饭的描述必须改成“简单饮食”，避免外界产生极端苦行或虐待误解。",
+            "reason": "措辞软化规范：只能吃黄豆酱配米饭的描述必须改成“简单饮食”，避免外界产生极端苦行或虐待误解。",
         },
         {
             "id": "politics_redline",
@@ -474,7 +474,7 @@ class LizaComplianceEngine:
                         "start": m.start(),
                         "end": m.end(),
                         "suggest": rule.get("default_replace", "看了一本书"),
-                        "reason": "李想老师明确批示：缩写为“ysdh”绝对不行，必须彻底删除或换成“看了一本书”！",
+                        "reason": "风控一票否决：缩写为“ysdh”绝对不行，必须彻底删除或换成“看了一本书”！",
                     })
                     if sev_rank["CRITICAL"] > sev_rank[max_sev]:
                         max_sev = "CRITICAL"
@@ -513,7 +513,7 @@ class LizaComplianceEngine:
     def apply_smart_fixes(cls, title: str, content: str) -> dict:
         """执行双轮 AI 审核与修润逻辑
 
-        轮次 1：智能修润（按李想规则自动生成通顺润色替换，保留原意）
+        轮次 1：智能修润（按合规风控规则自动生成通顺润色替换，保留原意）
         轮次 2：对抗质检（魔鬼式查漏补缺，断言是否有 ysdh 隐写、与神对话残留、小灵魂未删等）
         """
         scan_t = cls.scan_text(title)
@@ -544,7 +544,7 @@ class LizaComplianceEngine:
         # 修润正文
         for h in scan_c["hits"]:
             if h.get("rule_id") == "soul_sun":
-                thinking_r1.append(f"  * 检出整段高危故事「{h['match'].strip()}」 -> 依据李想老师一票否决指令，执行整段剔除。")
+                thinking_r1.append(f"  * 检出整段高危故事「{h['match'].strip()}」 -> 依据一票否决风控基线，执行整段剔除。")
                 mod_content = mod_content.replace(h["match"], "")
                 replacements.append({
                     "target": "content",
@@ -1439,7 +1439,7 @@ class Client:
         self.notice = f"✏️ 已单独定制条目 {aid} 的标题与正文。"
         return {"ok": True, "note": self.notice}
 
-    # ---------------- 李想合规专版 · 敏感词排查与双轮智能修润 ---------------- #
+    # ---------------- 深度合规专版 · 敏感词排查与双轮智能修润 ---------------- #
 
     def fetch_full_item(self, aid: str) -> Dict[str, str]:
         aid = str(aid)
@@ -1512,7 +1512,7 @@ class Client:
                     row["audit_status"] = "safe"
                     stats["safe"] += 1
             summary = (
-                f"🛡️ 李想老师合规全文大排查完成（共 {stats['total']} 篇）："
+                f"🛡️ 全库深度合规大排查完成（共 {stats['total']} 篇）："
                 f"🔴 极高风险 {stats['critical']} 篇 · "
                 f"🟡 待规范 {stats['high']} 篇 · "
                 f"🟠 需微调 {stats['medium']} 篇 · "
@@ -2135,7 +2135,7 @@ _PAGE = r"""<!DOCTYPE html>
       <span style="font-size:12px;color:#64748b;font-weight:normal;">｜本工具免费提供，用于让有价值的教学内容更容易被检索到</span>
     </div>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:3px;">
-      <span>🛠️ <b>制作团队</b>：由 <b>陈arthur</b> 与 <b>冠军二班胡ranchel</b> 共同制作</span>
+      <span>🛠️ <b>制作团队</b>：由 <b>陈arthur</b> 与 <b>冠军二班兰彻（Rancho / langcher）</b> 共同制作</span>
       <span>·</span>
       <span>🎴 <b>兰彻的 Anki 站</b>：<a href="https://lanche.website/AI-Anki" target="_blank" style="color:#2563eb;font-weight:600;text-decoration:underline;">Anki 小工坊 · AI 智能制卡与自动化制卡工具</a></span>
     </div>
@@ -2307,7 +2307,7 @@ _PAGE = r"""<!DOCTYPE html>
     <input type="text" id="inpKeyword" placeholder="按标题关键词/ID筛选（可选）" style="width:185px;padding:7px 10px">
     <button class="blue" id="btnExportDocx">📄 导出勾选为 Word (.docx)</button>
     <button id="btnBackupBatch" title="将当前列表的线上原文备份到本机">📦 备份本批原文</button>
-    <button id="btnAuditBatch" style="background:#7c3aed;color:#fff;border-color:#6d28d9;font-weight:700">🛡️ 全文敏感词AI双轮排查（李想合规专版）</button>
+    <button id="btnAuditBatch" style="background:#7c3aed;color:#fff;border-color:#6d28d9;font-weight:700">🛡️ 全文敏感词AI双轮排查（深度合规专版）</button>
     <label class="chk"><input type="checkbox" id="all" checked> 全选当前列表</label>
     <span class="spacer"></span>
     <span class="cnt" id="topcnt" style="font-size:12.5px;color:var(--sub)"></span>
@@ -2323,17 +2323,17 @@ _PAGE = r"""<!DOCTYPE html>
   </div>
 </div>
 
-<!-- 李想老师合规专版 · 双轮 AI 审查弹窗 -->
+<!-- 深度合规专版 · 双轮 AI 审查弹窗 -->
 <div class="modal-mask" id="auditModal">
   <div class="modal-card" style="max-width:840px;text-align:left;max-height:92vh;display:flex;flex-direction:column;padding:22px 24px">
     <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:12px">
       <div>
         <h3 style="margin:0 0 4px;font-size:17px;display:flex;align-items:center;gap:8px">
-          <span>🛡️ 李想老师合规专版 · 双轮 AI 对抗审核与智能修润</span>
+          <span>🛡️ 知乎文章深度合规审查 · 双轮 AI 智能修润</span>
           <span id="auditBadgeHeader" class="pill" style="font-size:12px;background:#ecfdf5;color:#065f46">合规检测中</span>
         </h3>
         <div style="font-size:12px;color:var(--sub)">
-          严格执行李想老师指令：全面清零《与神对话》（严禁 ysdh 缩写）、删除小灵魂故事、降级黑关/修行词汇、规范简单饮食
+          严格执行深度合规风控标准：全面清零《与神对话》（严禁 ysdh 缩写）、彻底剔除小灵魂故事、涉玄用语降级、规范简单饮食
         </div>
       </div>
       <button class="sm" id="btnAuditClose">✕ 关闭</button>
@@ -2356,7 +2356,7 @@ _PAGE = r"""<!DOCTYPE html>
       <div id="auditThinkingBox" style="display:none;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:12px 14px;font-family:Consolas,monospace;font-size:12px;line-height:1.6;margin-bottom:12px;white-space:pre-wrap;max-height:180px;overflow-y:auto"></div>
 
       <!-- 检出敏感项及替换清单 -->
-      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">📋 检出的敏感风险项与李想合规置换依据：</div>
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">📋 检出的敏感风险项与合规风控置换依据：</div>
       <div id="auditHitsList" style="margin-bottom:14px;display:flex;flex-direction:column;gap:8px"></div>
 
       <!-- 比对与原地微调区 -->
@@ -2545,11 +2545,11 @@ function cardHtml(r){
   if(r.audit_status === "critical") auditPill = '<span class="pill" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;font-weight:700">🔴 严禁项:《与神对话》/极高风险</span>';
   else if(r.audit_status === "high") auditPill = '<span class="pill" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a">🟡 待规范:黑关/灵性/修行</span>';
   else if(r.audit_status === "medium") auditPill = '<span class="pill" style="background:#ffedd5;color:#9a3412;border:1px solid #fed7aa">🟠 需微调:极端饮食</span>';
-  else if(r.audit_status === "safe") auditPill = '<span class="pill" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0">🟢 李想合规通过</span>';
-  else if(r.audit_status === "applied") auditPill = '<span class="pill" style="background:#f3e8ff;color:#6b21a8;border:1px solid #d8b4fe">✓ 已采纳李想合规修润</span>';
+  else if(r.audit_status === "safe") auditPill = '<span class="pill" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0">🟢 双轮合规通过</span>';
+  else if(r.audit_status === "applied") auditPill = '<span class="pill" style="background:#f3e8ff;color:#6b21a8;border:1px solid #d8b4fe">✓ 已采纳双轮修润</span>';
 
   extra += auditPill;
-  extra += '<button class="sm" data-audit-one="'+esc(r.id)+'" style="background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe;font-weight:700">🛡️ 李想合规审查</button>';
+  extra += '<button class="sm" data-audit-one="'+esc(r.id)+'" style="background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe;font-weight:700">🛡️ 双轮合规审查</button>';
   extra += '<button class="sm" data-export-one="'+esc(r.id)+'">📄 导出 Word</button>';
   if(r.has_backup){
     extra += '<span style="color:#059669;font-weight:600">📦 已备份原文</span>';
@@ -2963,7 +2963,7 @@ function openAuditModal(aid){
   document.getElementById("auditBadgeHeader").style.color = "#475569";
   document.getElementById("auditThinkingBox").style.display = "none";
   document.getElementById("auditThinkingBox").textContent = "正在生成思考过程…";
-  document.getElementById("auditHitsList").innerHTML = '<div style="color:var(--sub);font-size:12.5px">正在逐行排查李想老师合规规则…</div>';
+  document.getElementById("auditHitsList").innerHTML = '<div style="color:var(--sub);font-size:12.5px">正在逐行排查敏感词与深度合规规则…</div>';
   document.getElementById("auditTitleInp").value = "";
   document.getElementById("auditContentInp").value = "";
 
@@ -2989,7 +2989,7 @@ function openAuditModal(aid){
 
     var hits = res.replacements || [];
     if(hits.length === 0){
-      document.getElementById("auditHitsList").innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid #a7f3d0"><b>✓ 恭喜！</b> 全文未检出《与神对话》、黑关、闭关、极端饮食等任何敏感违规，已完全符合李想老师合规要求。</div>';
+      document.getElementById("auditHitsList").innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid #a7f3d0"><b>✓ 恭喜！</b> 全文未检出《与神对话》、黑关、闭关、极端饮食等任何敏感违规，已完全符合平台深度合规要求。</div>';
     } else {
       var hHtml = hits.map(function(h){
         var isDel = h.after === "（已整段删除）" || !h.after;
@@ -3003,7 +3003,7 @@ function openAuditModal(aid){
             ' &nbsp;→&nbsp; '+
             '<span style="background:'+(isDel?'#fef2f2':'#ecfdf5')+';color:'+(isDel?'#dc2626':'#065f46')+';padding:2px 6px;border-radius:4px;font-weight:700">'+esc(h.after || "整段剔除")+'</span>'+
           '</div>'+
-          '<div style="font-size:11.5px;color:var(--sub);margin-top:2px">💡 李想老师指令依据：'+esc(h.reason)+'</div>'+
+          '<div style="font-size:11.5px;color:var(--sub);margin-top:2px">💡 合规风控标准依据：'+esc(h.reason)+'</div>'+
         '</div>';
       }).join("");
       document.getElementById("auditHitsList").innerHTML = hHtml;
@@ -3019,7 +3019,7 @@ function openAuditModal(aid){
 document.getElementById("btnAuditBatch").onclick = function(){
   call("/api/audit/scan", {}).then(function(res){
     if(res && res.stats){
-      alert("🛡️ 李想老师合规全文扫描完成！\n" +
+      alert("🛡️ 全库深度合规扫描完成！\n" +
             "共检查 " + res.stats.total + " 篇：\n" +
             "🔴 极高风险：《与神对话》/红线 " + res.stats.critical + " 篇\n" +
             "🟡 待规范：黑关/灵性/修行 " + res.stats.high + " 篇\n" +

@@ -12,3 +12,7 @@ qy_daily_quota.json
 
 # 打包产物
 *.zip
+
+# 本地工作台运行产物
+data/
+exports/

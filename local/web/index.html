@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="qy-token" content="__QY_TOKEN__">
+<title>清一新教育 · 文章工作台</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <aside class="nav">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">
+        <b>文章工作台</b>
+        <span id="brand-sub">清一新教育</span>
+      </div>
+    </div>
+
+    <div class="nav-group">内容</div>
+    <button class="nav-item active" data-view="library">
+      <span>文章库</span><em id="n-docs">0</em>
+    </button>
+    <button class="nav-item" data-view="blocked">
+      <span>待处理</span><em id="n-blocked" class="em-danger">0</em>
+    </button>
+    <button class="nav-item" data-view="nobody">
+      <span>缺正文</span><em id="n-nobody">0</em>
+    </button>
+
+    <div class="nav-group">输出</div>
+    <button class="nav-item" data-view="export">
+      <span>导出 Word</span>
+    </button>
+    <button class="nav-item" data-view="audit">
+      <span>一致性审计</span><em id="n-audit" class="em-danger"></em>
+    </button>
+    <button class="nav-item" data-view="rules">
+      <span>检查规则</span><em id="n-rules">0</em>
+    </button>
+
+    <div class="nav-foot">
+      <div class="who" id="who">
+        <span class="dot" id="conn-dot"></span>
+        <span id="who-text">未登录</span>
+      </div>
+      <button class="link" id="btn-login">填入 Cookie</button>
+      <div class="tiny" id="mode-hint"></div>
+    </div>
+  </aside>
+
+  <section class="list">
+    <div class="list-head">
+      <div class="search">
+        <input id="q" type="search" placeholder="搜索标题…" autocomplete="off">
+      </div>
+      <div class="pills" id="filters">
+        <button class="pill active" data-only="">全部</button>
+        <button class="pill" data-only="blocked">阻断</button>
+        <button class="pill" data-only="dirty">待上传</button>
+        <button class="pill" data-only="no_brand">无署名</button>
+      </div>
+      <div class="list-tools">
+        <button class="mini" id="btn-inspect">同步列表</button>
+        <button class="mini" id="btn-sync-body">同步正文</button>
+        <label class="mini chk"><input type="checkbox" id="sel-all"> 全选</label>
+      </div>
+    </div>
+    <div class="list-body" id="list-body">
+      <div class="empty">正在载入…</div>
+    </div>
+    <div class="list-foot">
+      <span id="sel-count">未选中</span>
+      <div class="foot-actions">
+        <button class="mini" id="btn-check">检查</button>
+        <button class="mini" id="btn-export">导出</button>
+      </div>
+    </div>
+  </section>
+
+  <main class="detail" id="detail">
+    <div class="empty big">从左边选一篇文章</div>
+  </main>
+
+</div>
+
+<div class="modal-wrap" id="modal" hidden>
+  <div class="modal" id="modal-box"></div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -127,6 +127,20 @@ async function loadStatus() {
   $('#mode-hint').textContent = d.allow_write
     ? '可写回知乎'
     : '只读模式 · 改动不会上传';
+  try {
+    const ac = await api('/api/ai/config');
+    S.aiConfig = ac.config || {};
+    const mn = S.aiConfig.model || 'deepseek-v4.1-flash';
+    const aiText = $('#ai-status-text');
+    const aiDot = $('#ai-dot');
+    if (aiText) aiText.textContent = mn + ' · 已连接';
+    if (aiDot) aiDot.className = 'dot on';
+  } catch (e) {
+    const aiText = $('#ai-status-text');
+    const aiDot = $('#ai-dot');
+    if (aiText) aiText.textContent = 'AI 接口异常';
+    if (aiDot) aiDot.className = 'dot off';
+  }
   return d;
 }
 
@@ -223,6 +237,7 @@ function renderDetail() {
     </div>
     <div class="d-body" id="d-body">${renderTab()}</div>
     <div class="d-foot">
+      <button class="btn primary" id="btn-dual-ai" style="background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600">🤖 双轮 AI 智能修润与质检</button>
       <button class="btn" id="btn-export1">导出 Word</button>
       <button class="btn" id="btn-aiprompt">取 AI 提示词</button>
       <button class="btn" id="btn-check1">重新检查</button>
@@ -233,6 +248,7 @@ function renderDetail() {
   $$('#detail .tab').forEach(t => t.onclick = () => {
     S.tab = t.dataset.tab; renderDetail();
   });
+  $('#btn-dual-ai').onclick = () => showDualAiModal(d.doc.doc_id);
   $('#btn-export1').onclick = () => doExport([d.doc.doc_id]);
   $('#btn-check1').onclick = () => doCheck([d.doc.doc_id], true);
   $('#btn-aiprompt').onclick = () => showAiPrompt(d.doc.doc_id);
@@ -494,6 +510,148 @@ async function showAiPrompt(id) {
   };
 }
 
+async function showAiConfigModal() {
+  let cfg = S.aiConfig;
+  if (!cfg) {
+    try { const r = await api('/api/ai/config'); cfg = r.config || {}; } catch(e) { cfg = {}; }
+  }
+  openModal(`
+    <h2>配置 AI 接口</h2>
+    <p class="sub">用于「双轮 AI 智能修润与对抗质检」。凭证保存在本地 <code>data/ai_config.json</code>，永不上传。</p>
+    <div class="field">
+      <label>API Endpoint (接口地址)</label>
+      <input type="text" id="ai-cfg-url" value="${esc(cfg.api_url || 'http://156.225.31.92:7863/v1')}">
+    </div>
+    <div class="field">
+      <label>API Key</label>
+      <input type="password" id="ai-cfg-key" value="${esc(cfg.api_key || '')}">
+    </div>
+    <div class="field">
+      <label>模型名称 (Model)</label>
+      <select id="ai-cfg-model" style="width:100%;padding:8px 10px;border-radius:var(--r);border:1px solid var(--border-2);background:var(--bg)">
+        <option value="deepseek-v4.1-flash"${cfg.model === 'deepseek-v4.1-flash' ? ' selected' : ''}>deepseek-v4.1-flash (推荐 · 快速高智能)</option>
+        <option value="hy3"${cfg.model === 'hy3' ? ' selected' : ''}>hy3</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn primary" id="btn-save-aicfg">保存配置</button>
+    </div>
+  `);
+  $('#btn-save-aicfg').onclick = async () => {
+    const url = $('#ai-cfg-url').value.trim();
+    const key = $('#ai-cfg-key').value.trim();
+    const model = $('#ai-cfg-model').value.trim();
+    if (!url || !key) return toast('地址和 Key 不能为空', 'bad');
+    try {
+      const r = await api('/api/ai/config', { api_url: url, api_key: key, model: model });
+      S.aiConfig = r.config;
+      toast('AI 配置已更新', 'good');
+      closeModal();
+      await loadStatus();
+    } catch(e) {
+      toast('保存失败: ' + e.message, 'bad');
+    }
+  };
+}
+
+async function showDualAiModal(id) {
+  const d = S.cur;
+  if (!d || !d.has_body) return toast('请先同步正文再运行双轮 AI', 'bad');
+
+  const mName = (S.aiConfig && S.aiConfig.model) || 'deepseek-v4.1-flash';
+
+  const r = await api('/api/ai/dual_round', { doc_id: id, model: mName });
+  runTask(r.task_id, `🤖 双轮 AI 智能修润与对抗质检`, async (task) => {
+    const res = task.result || {};
+    if (!res.ok) return toast('双轮 AI 处理未成功: ' + (res.error || ''), 'bad');
+
+    const score = res.adversarial_score || 0;
+    const passed = res.passed;
+    const scoreColor = score >= 90 ? 'var(--ok)' : score >= 80 ? 'var(--warn)' : 'var(--danger)';
+    const scoreBg = score >= 90 ? 'var(--ok-soft)' : score >= 80 ? 'var(--warn-soft)' : 'var(--danger-soft)';
+
+    const changesHtml = (res.changes || []).map(c => `
+      <div style="background:var(--bg-code);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:8px">
+        <div style="font-size:12px;margin-bottom:4px">
+          <span class="strike" style="color:var(--danger)">${esc(c.original_phrase)}</span>
+          &nbsp;→&nbsp;
+          <span style="color:var(--ok);font-weight:600">${esc(c.modified_phrase)}</span>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-2)">💡 ${esc(c.reason)}</div>
+      </div>
+    `).join('');
+
+    openModal(`
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h2 style="margin:0">🛡️ 双轮 AI 智能修润与假想敌质检结果</h2>
+        <span style="background:${scoreBg};color:${scoreColor};font-weight:700;padding:4px 10px;border-radius:6px;font-size:13px">
+          对抗安全分: ${score} / 100 · ${passed ? '质检合格' : '待复核'}
+        </span>
+      </div>
+      <p class="sub" style="margin-bottom:14px">
+        模型: <b>${esc(res.model)}</b> · 总用时 ${res.total_elapsed}s · ${res.refine_done ? '已触发自动二次自愈精修' : '首轮即通过'}
+      </p>
+
+      <div class="card ${passed ? 'pass' : 'warn'}" style="margin-bottom:14px">
+        <div class="card-h">
+          <span class="lv ${passed ? 'pass' : 'warn'}">${passed ? '裁决通过' : '预警'}</span>
+          <span class="lb">假想敌魔鬼审查员点评</span>
+          <span class="pos">${esc(res.verdict || '')}</span>
+        </div>
+        <div class="card-b">
+          <div class="why" style="font-size:12.5px;line-height:1.6">${esc(res.critique || '未发现把柄与生硬语病')}</div>
+        </div>
+      </div>
+
+      <details style="background:var(--bg-code);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:14px">
+        <summary style="font-weight:600;cursor:pointer;color:var(--text)">🧠 查看 AI 1 修润思考过程（动宾自适应与段落衔接逻辑）</summary>
+        <div style="font-family:var(--mono);font-size:12px;line-height:1.6;margin-top:8px;white-space:pre-wrap;color:var(--text-2);max-height:160px;overflow-y:auto">
+${esc(res.thinking || '')}
+        </div>
+      </details>
+
+      <div class="sec-h" style="margin-bottom:8px">📋 检出敏感项与上下文自适应置换对照（${(res.changes || []).length} 处）</div>
+      <div style="max-height:180px;overflow-y:auto;margin-bottom:14px">
+        ${changesHtml || '<div class="note">全文未检出显性敏感词，仅对文风与语境做了润色。</div>'}
+      </div>
+
+      <div class="sec-h" style="margin-bottom:8px">✍️ 修润后成品（可原地微调，点击一键采纳存入草稿）</div>
+      <div class="field">
+        <label>修润后标题</label>
+        <input type="text" id="ai-res-title" value="${esc(res.modified_title)}">
+      </div>
+      <div class="field">
+        <label>修润后正文 HTML</label>
+        <textarea id="ai-res-body" style="min-height:140px">${esc(res.modified_body)}</textarea>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <button class="btn" onclick="closeModal()">暂不采纳</button>
+        <button class="btn primary" id="btn-adopt-ai" style="background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700">
+          ✓ 一键采纳双轮修润稿
+        </button>
+      </div>
+    `);
+
+    $('#btn-adopt-ai').onclick = async () => {
+      const newTitle = $('#ai-res-title').value.trim();
+      const newBody = $('#ai-res-body').value.trim();
+      if (!newTitle || !newBody) return toast('标题或正文不能为空', 'bad');
+      try {
+        await api('/api/ai/apply', { doc_id: id, title: newTitle, body_html: newBody });
+        toast('已成功采纳双轮修润稿并存入草稿！', 'good');
+        closeModal();
+        await openArticle(id);
+        S.tab = 'edit';
+        renderDetail();
+      } catch(e) {
+        toast('采纳失败: ' + e.message, 'bad');
+      }
+    };
+  });
+}
+
 /* ─────────────── 其他视图 ─────────────── */
 
 async function renderAudit() {
@@ -651,6 +809,9 @@ function bind() {
       } catch (e) { toast('失败：' + e.message, 'bad'); }
     };
   };
+
+  const btnAi = $('#btn-ai-cfg');
+  if (btnAi) btnAi.onclick = () => showAiConfigModal();
 }
 
 /* ─────────────── 启动 ─────────────── */

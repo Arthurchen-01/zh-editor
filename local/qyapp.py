@@ -51,6 +51,7 @@ import qystore as qs  # noqa: E402
 import qycheck as qc  # noqa: E402
 import qydocx as qd  # noqa: E402
 import qyplane as qp  # noqa: E402
+import qyai  # noqa: E402
 
 WEB_DIR = _HERE / "web"
 EXPORT_DIR = _ROOT / "exports"
@@ -388,6 +389,61 @@ class Workbench:
                 "merged_count": len(merged),
                 "ai_note": parsed.get("note", ""),
                 "cross": cc, "findings": merged}
+
+    # ---------------- 双轮 AI 智能修润与假想敌质检 ---------------- #
+
+    def ai_dual_round(self, doc_id: str, model: Optional[str] = None,
+                      t: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        snap = self.store.latest_snapshot(doc_id)
+        doc = self.store.get_document(doc_id) or {}
+        title = (snap or {}).get("title") or doc.get("title_now") or ""
+        body_html = (snap or {}).get("content") or ""
+        if not body_html:
+            raise RuntimeError("本地尚无该文章正文，请先在左侧点「同步正文」拉取")
+
+        def _log(msg: str) -> None:
+            if t:
+                self.tasks.say(t, msg)
+
+        res = qyai.run_dual_agent_pipeline(title, body_html, model=model, log_fn=_log)
+        if not res.get("ok"):
+            raise RuntimeError(res.get("error") or "AI 处理异常")
+
+        # 记录到 revisions 表作为候选建议
+        self.store.add_revision(
+            doc_id, "ai_dual", "title",
+            title, res["modified_title"],
+            "AI_TITLE", "双轮AI修润标题", res.get("thinking", "")[:200], False
+        )
+        self.store.add_revision(
+            doc_id, "ai_dual", "content",
+            body_html[:4000], res["modified_body"][:4000],
+            "AI_BODY", "双轮AI修润正文", res.get("verdict", "")[:200], False
+        )
+        return res
+
+    def ai_apply(self, doc_id: str, title: str, body_html: str) -> Dict[str, Any]:
+        """采纳双轮 AI 修润结果到本地草稿。"""
+        snap = self.store.latest_snapshot(doc_id)
+        old_title = (snap or {}).get("title") or ""
+        old_body = (snap or {}).get("content") or ""
+
+        self.store.add_revision(
+            doc_id, "manual", "title",
+            old_title, title,
+            "AI_APPLY", "采纳双轮AI修润", "用户采纳双轮AI修润结果", True
+        )
+        self.store.add_revision(
+            doc_id, "manual", "content",
+            old_body[:4000], body_html[:4000],
+            "AI_APPLY", "采纳双轮AI修润", "用户采纳双轮AI修润结果", True
+        )
+        self.store.upsert_document(
+            {"id": str(doc_id), "type": "article", "title": title},
+            body_html=body_html
+        )
+        self.store.add_snapshot(doc_id, title, body_html, "manual")
+        return {"ok": True, "doc_id": doc_id, "title": title, "body_len": len(body_html)}
 
     # ---------------- 保存 / 写回 ---------------- #
 
@@ -731,6 +787,9 @@ class Handler(BaseHTTPRequestHandler):
                                "snapshots": wb.store.list_snapshots(did),
                                "consistency": wb.store.consistency_report(did)})
 
+        if p == "/api/ai/config":
+            return self._json({"ok": True, "config": qyai.load_ai_config()})
+
         return self._err(RuntimeError(f"未知接口 {p}"), 404)
 
     # ---------- POST API ---------- #
@@ -746,6 +805,37 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:  # noqa: BLE001
                     r["account"] = {"error": str(exc)[:200]}
             return self._json(r)
+
+        if p == "/api/ai/config":
+            qyai.save_ai_config(
+                str(b.get("api_url") or ""),
+                str(b.get("api_key") or ""),
+                str(b.get("model") or "")
+            )
+            return self._json({"ok": True, "config": qyai.load_ai_config()})
+
+        if p == "/api/ai/dual_round":
+            doc_id = str(b.get("doc_id") or "")
+            model = str(b.get("model") or "")
+            if not doc_id:
+                return self._err(RuntimeError("doc_id 为空"))
+
+            def _job(t: Dict[str, Any]) -> Any:
+                wb.tasks.say(t, f"开始双轮 AI 智能修润与对抗质检（文章 ID: {doc_id}）")
+                r = wb.ai_dual_round(doc_id, model=model or None, t=t)
+                wb.tasks.say(t, f"双轮质检完成！安全分: {r.get('adversarial_score')} 分")
+                return r
+
+            return self._json({"ok": True,
+                               "task_id": wb.tasks.spawn("双轮 AI 修润", _job)})
+
+        if p == "/api/ai/apply":
+            doc_id = str(b.get("doc_id") or "")
+            title = str(b.get("title") or "")
+            body_html = str(b.get("body_html") or "")
+            if not doc_id or not body_html:
+                return self._err(RuntimeError("缺少必需参数"))
+            return self._json(wb.ai_apply(doc_id, title, body_html))
 
         if p == "/api/inspect":
             kinds = b.get("kinds") or ["article"]

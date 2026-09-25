@@ -134,6 +134,45 @@ def auto_detect_browser_cookie(close_browser: bool = False) -> Dict[str, Any]:
         for b_name, user_data in candidates:
             if not user_data.exists():
                 continue
+
+            # 1. 优先扫描 Chromium 的 Local Storage (LevelDB)
+            # 无需关闭浏览器、无视 Chromium 127+ v20 App-Bound 限制，秒级瞬时直读！
+            profiles = ["Default"] + [f"Profile {i}" for i in range(1, 6)]
+            for prof in profiles:
+                leveldb_dir = user_data / prof / "Local Storage" / "leveldb"
+                if not leveldb_dir.is_dir():
+                    continue
+                try:
+                    for f in list(leveldb_dir.glob("*.ldb")) + list(leveldb_dir.glob("*.log")):
+                        try:
+                            with open(f, "rb") as fp:
+                                data = fp.read()
+                            idx = data.find(b"z_c0=2|1:0|10:")
+                            if idx != -1:
+                                start = max(0, idx - 400)
+                                end = min(len(data), idx + 600)
+                                sub = data[start:end]
+                                m = re.findall(rb'([a-zA-Z0-9_\-\.]+)=([^;,\r\n\" \x00-\x1f]+)', sub)
+                                ck_dict = {}
+                                for k, v in m:
+                                    ks = k.decode('ascii', errors='ignore')
+                                    vs = v.decode('ascii', errors='ignore')
+                                    if ks in ('z_c0', 'q_c1', '_zap', 'd_c0', '__zse_ck', 'capsion_ticket'):
+                                        ck_dict[ks] = vs
+                                if 'z_c0' in ck_dict:
+                                    found_cookie = "; ".join(f"{k}={v}" for k, v in ck_dict.items())
+                                    found_source = f"{b_name} ({prof} 极速直读)"
+                                    break
+                        except Exception:
+                            pass
+                    if found_cookie:
+                        break
+                except Exception:
+                    pass
+            if found_cookie:
+                break
+
+            # 2. 传统 SQLite 扫描（适用于旧版 Chromium v10/v11）
             ls_path = user_data / "Local State"
             if not ls_path.exists():
                 continue

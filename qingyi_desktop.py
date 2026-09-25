@@ -59,6 +59,20 @@ class DesktopApp:
             self.icon_image = Image.new("RGBA", (64, 64), (37, 99, 235, 255))
 
     def start_http_server(self):
+        # 优先使用现代三栏式 Claude 风格工作台 (local.qyapp + 77条合规规则 + 双轮AI引擎)
+        try:
+            from local import qyapp
+            wb = qyapp.Workbench(allow_write=False)
+            qyapp.Handler.wb = wb
+            self.httpd = ThreadingHTTPServer(("127.0.0.1", self.port), qyapp.Handler)
+            self.httpd.daemon_threads = True
+            self.server_thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+            self.server_thread.start()
+            print(f"[DesktopApp] 成功加载现代三栏 Claude 风格工作台 (端口: {self.port})")
+            return
+        except Exception as exc:
+            print(f"[DesktopApp] local.qyapp 加载回退至轻量客户端: {exc}")
+
         key = os.environ.get("QY_API_KEY") or "guanjun2026"
         cookie = ""
         cfile = EXE_DIR / "cookie.txt"

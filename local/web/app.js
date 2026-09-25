@@ -814,7 +814,7 @@ async function showLoginModal() {
       <div class="auth-desc">直接解密并提取本机浏览器已登录的知乎 Cookie，一键秒读。</div>
       <div class="row" style="justify-content:flex-start;margin:0 0 6px">
         <button class="btn primary" id="auth-btn-autodetect">一键读取本机登录</button>
-        <button class="btn" id="auth-btn-close-browser" style="display:none;color:var(--danger)">🔒 关闭浏览器并读取</button>
+        <button class="btn" id="auth-btn-close-browser" style="display:none;background:#fee2e2;border:1px solid #f87171;color:#b91c1c;font-weight:600">⚡ 关闭浏览器并直读</button>
       </div>
       <div id="auth-autodetect-msg" style="font-size:11.5px;color:var(--text-2);margin-top:6px"></div>
     </div>
@@ -866,23 +866,55 @@ async function showLoginModal() {
   const msgAuto = $('#auth-autodetect-msg');
 
   async function doAutoDetect(closeBrowser = false) {
-    msgAuto.innerHTML = '<i>正在解密扫描本机 Edge/Chrome 登录数据…</i>';
+    if (closeBrowser) {
+      msgAuto.innerHTML = '<i>正在关闭浏览器并解密直读知乎凭据，请稍候…</i>';
+    } else {
+      msgAuto.innerHTML = '<i>正在解密扫描本机 Edge/Chrome 登录数据…</i>';
+    }
+    btnAuto.disabled = true;
+    btnCloseBr.disabled = true;
     try {
-      const res = await api('/api/auth/auto_detect', { close_browser: closeBrowser });
+      const opt = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-QY-Token': TOKEN
+        },
+        body: JSON.stringify({ close_browser: closeBrowser })
+      };
+      const r = await fetch('/api/auth/auto_detect', opt);
+      let res = {};
+      try { res = await r.json(); } catch(err) { res = { ok: false, error: '接口解析失败' }; }
+
       if (res.ok) {
         msgAuto.innerHTML = `<span style="color:var(--ok)">✓ 读取成功（来源: ${esc(res.source || '本机浏览器')}），正在进入工作台…</span>`;
         toast(`已登录：${(res.account && res.account.name) || '成功'}`, 'good');
         setTimeout(() => { closeModal(); loadStatus(); loadList(); }, 800);
       } else {
         if (res.locked) {
-          msgAuto.innerHTML = `<span style="color:var(--danger)">⚠️ 浏览器正在运行锁定了凭据文件。请点击右侧按钮秒级关闭并提取：</span>`;
+          msgAuto.innerHTML = `
+            <div style="margin-top:8px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;color:#991b1b">
+              <div style="font-weight:600;margin-bottom:6px">⚠️ ${esc(res.browser || 'Edge')} 正在运行并锁定了 Cookie 数据文件</div>
+              <div style="font-size:12px;color:#7f1d1d;margin-bottom:8px">由于 Windows 独占锁限制，需秒级退出浏览器后解密读取：</div>
+              <button class="btn" id="btn-inline-close-br" style="background:#dc2626;color:#fff;font-weight:600;padding:6px 14px;border:none;cursor:pointer">
+                ⚡ 立即关闭浏览器并直读
+              </button>
+            </div>
+          `;
           btnCloseBr.style.display = 'inline-block';
+          const btnInline = $('#btn-inline-close-br');
+          if (btnInline) {
+            btnInline.onclick = () => doAutoDetect(true);
+          }
         } else {
           msgAuto.innerHTML = `<span style="color:var(--danger)">${esc(res.error || '未检测到知乎登录态')}</span>`;
         }
       }
     } catch (e) {
       msgAuto.innerHTML = `<span style="color:var(--danger)">提取失败：${esc(e.message)}</span>`;
+    } finally {
+      btnAuto.disabled = false;
+      btnCloseBr.disabled = false;
     }
   }
 

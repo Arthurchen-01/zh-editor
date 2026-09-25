@@ -85,7 +85,7 @@ try:
 except Exception:
     _cmt_fetch = None  # type: ignore[assignment]
 
-CLIENT_VERSION = "3.0.0"
+CLIENT_VERSION = "3.1.0"
 DEFAULT_BATCH = 5
 DEFAULT_PORT = 8765
 
@@ -369,6 +369,258 @@ def _generate_zhihu_qr_base64() -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+
+# --------------------------------------------------------------------------- #
+# 李想合规专版 · 双轮 AI 审核与智能修润引擎 (Liza Compliance Engine)
+# --------------------------------------------------------------------------- #
+
+class LizaComplianceEngine:
+    """李想老师（Liza）团队知乎文章敏感词排查与智能修润引擎
+
+    严格落实团队最新合规要求：
+    1. 《与神对话》全量清零：禁止书名，严禁使用“ysdh”拼音缩写避审；替换为“看了一本书”或“书中说”；
+    2. “小灵魂与太阳”故事一票彻底删除；
+    3. “慧心课”、“黑关”、“闭关”、“疗愈”、“灵性”、“修行”等涉玄词汇降级为现代规范表述；
+    4. “只能吃黄豆酱配米饭”等极端饮食描述软化为“选择简单饮食”；
+    5. 涉邪/迷信/跨国非法集资/分裂政党一票熔断拦截。
+    """
+
+    RULES = [
+        {
+            "id": "c_god",
+            "name": "《与神对话》全量清零",
+            "severity": "CRITICAL",
+            "pattern": re.compile(r"(《\s*与\s*神\s*对\s*话\s*》|与神对话|神说|与神交流)", re.I),
+            "prohibited_abbr": re.compile(r"\b(ysdh|YSDH)\b", re.I),
+            "default_replace": "看了一本书",
+            "reason": "李想老师指令：全量删除《与神对话》字眼，严禁使用拼音缩写“ysdh”避审；书名可替换为“看了一本书”或“书中说”，书理如合乎逻辑可保留。",
+        },
+        {
+            "id": "soul_sun",
+            "name": "“小灵魂与太阳”故事彻底剔除",
+            "severity": "CRITICAL",
+            "pattern": re.compile(r"([^。！？\n]*?(?:小灵魂与太阳|小灵魂|你是光|把光遮住)[^。！？\n]*?[。！？\n]?)", re.I),
+            "default_replace": "",
+            "is_block_delete": True,
+            "reason": "李想老师特别指示：“尤其是小灵魂与太阳这个故事不能留”，必须整段剔除，避免被外界恶意关联玄学邪说。",
+        },
+        {
+            "id": "dark_retreat",
+            "name": "闭关/黑关/慧心课用语降级",
+            "severity": "HIGH",
+            "pattern": re.compile(r"(闭黑关|黑关|闭关修行|闭关|出关|慧心课|辟谷)", re.I),
+            "replacements": {
+                "闭黑关": "深度专注内省",
+                "黑关": "专注内省空间",
+                "闭关修行": "阶段性深度研学",
+                "闭关": "深度专注学习",
+                "出关": "阶段总结",
+                "慧心课": "认知深化课",
+                "辟谷": "清淡断食",
+            },
+            "reason": "李想老师指示：慧心课、黑关与闭关容易被误解炒作，需规范为“深度内省”、“专注研学”等现代教育表述。",
+        },
+        {
+            "id": "spiritual_words",
+            "name": "疗愈/灵性/修行等措辞规范化",
+            "severity": "HIGH",
+            "pattern": re.compile(r"(灵性|疗愈|修行|得道|开悟|前世|能量场|宇宙能量|宇宙法则)", re.I),
+            "replacements": {
+                "灵性": "心智认知",
+                "疗愈": "心态调整与情绪放松",
+                "修行": "自我提升与修养",
+                "得道": "认知通透",
+                "开悟": "豁然开朗",
+                "前世": "以往经历",
+                "能量场": "环境氛围",
+                "宇宙能量": "自然规律",
+                "宇宙法则": "客观规律",
+            },
+            "reason": "李想老师强调：“疗愈”、“灵性”、“修行”等措辞需调整，防止被关联到宗教迷信或非理性宣导。",
+        },
+        {
+            "id": "diet_soften",
+            "name": "极端苦行饮食描述软化",
+            "severity": "MEDIUM",
+            "pattern": re.compile(r"(只能吃(?:黄豆酱|米糊|咸菜)[^。！？\n]*|黄豆酱配米饭|饿肚子|忍饥挨饿)", re.I),
+            "default_replace": "选择简单清淡饮食",
+            "reason": "李想老师要求：只能吃黄豆酱配米饭的描述必须改成“简单饮食”，避免外界产生极端苦行或虐待误解。",
+        },
+        {
+            "id": "politics_redline",
+            "name": "涉邪/迷信/跨国非法集资/分裂政党高危红线",
+            "severity": "CRITICAL",
+            "pattern": re.compile(r"(邪教|跨国非法集资|分裂政党|秘密结社|密宗|法门)", re.I),
+            "default_replace": "",
+            "reason": "政治安全一票否决红线，严禁任何可能成为法律风险把柄的用词。",
+        },
+    ]
+
+    @classmethod
+    def scan_text(cls, text: str) -> dict:
+        """快速扫描全文中的敏感点，返回命中列表与最高风险等级"""
+        hits = []
+        max_sev = "SAFE"
+        sev_rank = {"CRITICAL": 3, "HIGH": 2, "MEDIUM": 1, "SAFE": 0}
+
+        for rule in cls.RULES:
+            if "prohibited_abbr" in rule:
+                for m in rule["prohibited_abbr"].finditer(text):
+                    hits.append({
+                        "rule_id": rule["id"],
+                        "rule_name": rule["name"] + " (严禁拼音缩写)",
+                        "severity": "CRITICAL",
+                        "match": m.group(0),
+                        "start": m.start(),
+                        "end": m.end(),
+                        "suggest": rule.get("default_replace", "看了一本书"),
+                        "reason": "李想老师明确批示：缩写为“ysdh”绝对不行，必须彻底删除或换成“看了一本书”！",
+                    })
+                    if sev_rank["CRITICAL"] > sev_rank[max_sev]:
+                        max_sev = "CRITICAL"
+
+            for m in rule["pattern"].finditer(text):
+                matched = m.group(0)
+                suggest = ""
+                if rule.get("is_block_delete"):
+                    suggest = "【彻底删除此段】"
+                elif "replacements" in rule:
+                    suggest = rule["replacements"].get(matched, rule.get("default_replace", ""))
+                else:
+                    suggest = rule.get("default_replace", "")
+
+                hits.append({
+                    "rule_id": rule["id"],
+                    "rule_name": rule["name"],
+                    "severity": rule["severity"],
+                    "match": matched,
+                    "start": m.start(),
+                    "end": m.end(),
+                    "suggest": suggest,
+                    "reason": rule["reason"],
+                })
+                if sev_rank[rule["severity"]] > sev_rank[max_sev]:
+                    max_sev = rule["severity"]
+
+        hits.sort(key=lambda x: x["start"])
+        return {
+            "max_severity": max_sev,
+            "hit_count": len(hits),
+            "hits": hits,
+        }
+
+    @classmethod
+    def apply_smart_fixes(cls, title: str, content: str) -> dict:
+        """执行双轮 AI 审核与修润逻辑
+
+        轮次 1：智能修润（按李想规则自动生成通顺润色替换，保留原意）
+        轮次 2：对抗质检（魔鬼式查漏补缺，断言是否有 ysdh 隐写、与神对话残留、小灵魂未删等）
+        """
+        scan_t = cls.scan_text(title)
+        scan_c = cls.scan_text(content)
+
+        thinking_r1 = []
+        thinking_r1.append(f"【轮次 1 · 智能修润 Agent】启动：标题检出 {len(scan_t['hits'])} 处风险，正文检出 {len(scan_c['hits'])} 处风险。")
+
+        mod_title = title
+        mod_content = content
+        replacements = []
+
+        # 修润标题
+        for h in scan_t["hits"]:
+            repl = h["suggest"]
+            if repl == "【彻底删除此段】":
+                repl = ""
+            thinking_r1.append(f"  * 标题检出「{h['match']}」({h['rule_name']}) -> 建议润色为「{repl}」")
+            mod_title = mod_title.replace(h["match"], repl)
+            replacements.append({
+                "target": "title",
+                "before": h["match"],
+                "after": repl,
+                "rule": h["rule_name"],
+                "reason": h["reason"]
+            })
+
+        # 修润正文
+        for h in scan_c["hits"]:
+            if h.get("rule_id") == "soul_sun":
+                thinking_r1.append(f"  * 检出整段高危故事「{h['match'].strip()}」 -> 依据李想老师一票否决指令，执行整段剔除。")
+                mod_content = mod_content.replace(h["match"], "")
+                replacements.append({
+                    "target": "content",
+                    "before": h["match"],
+                    "after": "（已整段删除）",
+                    "rule": h["rule_name"],
+                    "reason": h["reason"]
+                })
+
+        for h in scan_c["hits"]:
+            if h.get("rule_id") == "soul_sun":
+                continue
+            repl = h["suggest"]
+            if h["match"] in mod_content:
+                thinking_r1.append(f"  * 正文检出「{h['match']}」({h['rule_name']}) -> 规范替换为「{repl}」")
+                mod_content = mod_content.replace(h["match"], repl)
+                replacements.append({
+                    "target": "content",
+                    "before": h["match"],
+                    "after": repl,
+                    "rule": h["rule_name"],
+                    "reason": h["reason"]
+                })
+
+        # 轮次 2：对抗质检 Agent (Adversarial Verification)
+        thinking_r2 = []
+        thinking_r2.append("【轮次 2 · 对抗质检 Agent】启动严格对抗质检，执行一票否决死磕排查：")
+
+        check_res_t = cls.scan_text(mod_title)
+        check_res_c = cls.scan_text(mod_content)
+        total_remaining = check_res_t["hit_count"] + check_res_c["hit_count"]
+
+        has_god = bool(re.search(r"(与神对话|神说|与神交流)", mod_title + mod_content))
+        has_abbr = bool(re.search(r"\b(ysdh|YSDH)\b", mod_title + mod_content))
+        if not has_god and not has_abbr:
+            thinking_r2.append("  [OK] 断言 1 通过：《与神对话》全量清零，且无拼音缩写“ysdh/YSDH”避审痕迹。")
+        else:
+            thinking_r2.append("  [FAIL] 断言 1 失败：仍检测到与神对话或 ysdh 缩写残留！")
+
+        has_sun = bool(re.search(r"(小灵魂与太阳|小灵魂|你是光)", mod_title + mod_content))
+        if not has_sun:
+            thinking_r2.append("  [OK] 断言 2 通过：“小灵魂与太阳”故事已被彻底连根拔起，无任何残留。")
+        else:
+            thinking_r2.append("  [FAIL] 断言 2 失败：仍残留小灵魂相关段落！")
+
+        has_retreat = bool(re.search(r"(闭黑关|黑关|闭关|慧心课)", mod_title + mod_content))
+        if not has_retreat:
+            thinking_r2.append("  [OK] 断言 3 通过：黑关/闭关/慧心课已成功规范化为现代专注研修语境。")
+        else:
+            thinking_r2.append("  [WARN] 断言 3 提醒：仍有部分闭关字眼，建议微调。")
+
+        has_diet = bool(re.search(r"(只能吃黄豆酱|黄豆酱配米饭)", mod_title + mod_content))
+        if not has_diet:
+            thinking_r2.append("  [OK] 断言 4 通过：极端苦行饮食已软化为“简单清淡饮食”，消除虐待误解。")
+        else:
+            thinking_r2.append("  [FAIL] 断言 4 失败：仍有强迫只能吃黄豆酱字眼！")
+
+        score = 100 if total_remaining == 0 else max(50, 100 - total_remaining * 15)
+        passed = (total_remaining == 0) and (not has_god) and (not has_abbr) and (not has_sun)
+
+        thinking_r2.append(f">> 对抗质检评定：合规得分 {score} 分 · 最终状态：{'【双轮全绿·合规签发】' if passed else '【待复核】'}")
+
+        return {
+            "ok": True,
+            "passed": passed,
+            "score": score,
+            "thinking": "\n".join(thinking_r1) + "\n\n" + "\n".join(thinking_r2),
+            "original_title": title,
+            "modified_title": mod_title,
+            "original_content": content,
+            "modified_content": mod_content,
+            "replacements": replacements,
+            "remaining_hits": check_res_t["hits"] + check_res_c["hits"],
+        }
+
+
 # 本地控制台核心状态机
 # --------------------------------------------------------------------------- #
 
@@ -1187,6 +1439,89 @@ class Client:
         self.notice = f"✏️ 已单独定制条目 {aid} 的标题与正文。"
         return {"ok": True, "note": self.notice}
 
+    # ---------------- 李想合规专版 · 敏感词排查与双轮智能修润 ---------------- #
+
+    def fetch_full_item(self, aid: str) -> Dict[str, str]:
+        aid = str(aid)
+        with self._lock:
+            row = self.rows.get(aid) or {}
+            item_kind = row.get("type") or "article"
+            title = (row.get("title") or {}).get("before") or ""
+            content = ""
+            pl = self.payloads.get(aid) or {}
+            if pl.get("pre_content"):
+                content = pl.get("pre_content")
+            if not content and row.get("orig_excerpt"):
+                content = row.get("orig_excerpt") or ""
+
+        if (not content or len(content) < 50) and self.cookie:
+            try:
+                signer = qe.QingyiTitleSigner(cookie=self.cookie,
+                                              backup_dir=self.backup_dir,
+                                              policy=self.policy)
+                if item_kind == "answer":
+                    ans = signer.get_answer(aid)
+                    content = ans.get("content") or content
+                    title = ans.get("title") or (ans.get("question") or {}).get("title") or title
+                else:
+                    draft = signer.get_article_draft(aid)
+                    content = draft.get("content") or content
+                    title = draft.get("title") or title
+            except Exception:
+                pass
+        return {"title": title, "content": content, "kind": item_kind}
+
+    def audit_single_article(self, aid: str) -> Dict[str, Any]:
+        aid = str(aid)
+        item = self.fetch_full_item(aid)
+        title = item["title"]
+        content = item["content"]
+        res = LizaComplianceEngine.apply_smart_fixes(title, content)
+        res["aid"] = aid
+        with self._lock:
+            if aid in self.rows:
+                if res["passed"]:
+                    self.rows[aid]["audit_status"] = "safe"
+                elif any(h["severity"] == "CRITICAL" for h in res.get("remaining_hits", [])):
+                    self.rows[aid]["audit_status"] = "critical"
+                else:
+                    self.rows[aid]["audit_status"] = "high"
+        return res
+
+    def audit_batch_scan(self) -> Dict[str, Any]:
+        with self._lock:
+            if not self.rows:
+                return {"ok": False, "note": "当前列表为空，请先点击「📥 本地查询拉取知乎内容」载入文章！"}
+            stats = {"critical": 0, "high": 0, "medium": 0, "safe": 0, "total": len(self.rows)}
+            for aid, row in self.rows.items():
+                pre_t = (row.get("title") or {}).get("before") or ""
+                pl = self.payloads.get(aid) or {}
+                pre_c = pl.get("pre_content") or row.get("orig_excerpt") or ""
+                scan = LizaComplianceEngine.scan_text(f"{pre_t}\n{pre_c}")
+                max_s = scan["max_severity"].lower()
+                if max_s == "critical":
+                    row["audit_status"] = "critical"
+                    stats["critical"] += 1
+                elif max_s == "high":
+                    row["audit_status"] = "high"
+                    stats["high"] += 1
+                elif max_s == "medium":
+                    row["audit_status"] = "medium"
+                    stats["medium"] += 1
+                else:
+                    row["audit_status"] = "safe"
+                    stats["safe"] += 1
+            summary = (
+                f"🛡️ 李想老师合规全文大排查完成（共 {stats['total']} 篇）："
+                f"🔴 极高风险 {stats['critical']} 篇 · "
+                f"🟡 待规范 {stats['high']} 篇 · "
+                f"🟠 需微调 {stats['medium']} 篇 · "
+                f"🟢 零风险 {stats['safe']} 篇"
+            )
+            self.notice = summary
+            return {"ok": True, "stats": stats, "note": summary}
+
+
     # ---------------- 纯本地直连知乎拉取文章/回答 ---------------- #
 
     def load_local_articles(self, kind: str = "article", reset: bool = False,
@@ -1793,6 +2128,28 @@ _PAGE = r"""<!DOCTYPE html>
 </head>
 <body>
 <div class="wrap">
+  <!-- ============ 赞助、共创与联系 ============ -->
+  <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;padding:12px 18px;margin-bottom:14px;font-size:12.5px;line-height:1.75;color:#334155;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600;color:#1e3a8a;margin-bottom:3px;">
+      <span>🤝 <b>清一新教育-冠军一班-谢迪安友情资助</b></span>
+      <span style="font-size:12px;color:#64748b;font-weight:normal;">｜本工具免费提供，用于让有价值的教学内容更容易被检索到</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:3px;">
+      <span>🛠️ <b>制作团队</b>：由 <b>陈arthur</b> 与 <b>冠军二班胡ranchel</b> 共同制作</span>
+      <span>·</span>
+      <span>🎴 <b>兰彻的 Anki 站</b>：<a href="https://lanche.website/AI-Anki" target="_blank" style="color:#2563eb;font-weight:600;text-decoration:underline;">Anki 小工坊 · AI 智能制卡与自动化制卡工具</a></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;">
+      <span>📞 <b>支持本计划 / 企业 AI 供应对接</b>：</span>
+      <span>👤 <b>谢andy</b> (QQ: <code>3372429208</code> · API中转: <a href="https://api.uniprep.world/" target="_blank" style="color:#2563eb;font-weight:600;text-decoration:underline;">New API</a>)</span>
+      <span>·</span>
+      <span>👤 <b>陈arthur</b> (微信: <code>Chikai_ikr</code>)</span>
+    </div>
+    <div style="font-size:11.5px;color:#64748b;margin-top:3px;">
+      ⚠️ （本页署名、项目共创与联系方式仅供联系与鸣谢使用，<b>绝对不会写入任何知乎文章正文</b>）
+    </div>
+  </div>
+
   <header>
     <div class="brand">
       <i></i>清一新教育 · 本地查询、导出与修改一体机
@@ -1950,6 +2307,7 @@ _PAGE = r"""<!DOCTYPE html>
     <input type="text" id="inpKeyword" placeholder="按标题关键词/ID筛选（可选）" style="width:185px;padding:7px 10px">
     <button class="blue" id="btnExportDocx">📄 导出勾选为 Word (.docx)</button>
     <button id="btnBackupBatch" title="将当前列表的线上原文备份到本机">📦 备份本批原文</button>
+    <button id="btnAuditBatch" style="background:#7c3aed;color:#fff;border-color:#6d28d9;font-weight:700">🛡️ 全文敏感词AI双轮排查（李想合规专版）</button>
     <label class="chk"><input type="checkbox" id="all" checked> 全选当前列表</label>
     <span class="spacer"></span>
     <span class="cnt" id="topcnt" style="font-size:12.5px;color:var(--sub)"></span>
@@ -1961,6 +2319,62 @@ _PAGE = r"""<!DOCTYPE html>
       👋 欢迎使用本地全功能查询、导出与修改一体机！<br>
       <b>第 1 步：</b>点击上方 <b>「🔒 自动关闭浏览器并直接读取登录」</b> 或 <b>「📱 扫码登录知乎」</b>（无需手动找 Cookie）；<br>
       <b>第 2 步：</b>点击 <b>「📥 本地查询拉取知乎内容」</b>，即可一键 <b>「📄 导出勾选为 Word (.docx)」</b> 或选择 <b>四书五经/法律条文/自定义内容</b> 批量修改！
+    </div>
+  </div>
+</div>
+
+<!-- 李想老师合规专版 · 双轮 AI 审查弹窗 -->
+<div class="modal-mask" id="auditModal">
+  <div class="modal-card" style="max-width:840px;text-align:left;max-height:92vh;display:flex;flex-direction:column;padding:22px 24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:12px">
+      <div>
+        <h3 style="margin:0 0 4px;font-size:17px;display:flex;align-items:center;gap:8px">
+          <span>🛡️ 李想老师合规专版 · 双轮 AI 对抗审核与智能修润</span>
+          <span id="auditBadgeHeader" class="pill" style="font-size:12px;background:#ecfdf5;color:#065f46">合规检测中</span>
+        </h3>
+        <div style="font-size:12px;color:var(--sub)">
+          严格执行李想老师指令：全面清零《与神对话》（严禁 ysdh 缩写）、删除小灵魂故事、降级黑关/修行词汇、规范简单饮食
+        </div>
+      </div>
+      <button class="sm" id="btnAuditClose">✕ 关闭</button>
+    </div>
+
+    <div style="overflow-y:auto;flex:1;padding-right:4px">
+      <!-- 轮次与得分统计卡 -->
+      <div style="display:flex;gap:14px;align-items:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px;margin-bottom:12px">
+        <div style="font-size:32px;font-weight:800;color:#7c3aed;line-height:1" id="auditScore">--</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:14px" id="auditVerdict">正在执行双轮对抗质检…</div>
+          <div style="font-size:12px;color:var(--sub);margin-top:2px" id="auditSummary">
+            轮次 1：智能修润 Agent | 轮次 2：对抗质检 Agent（魔鬼查漏）
+          </div>
+        </div>
+        <button class="sm" id="btnToggleThinking" style="border-color:#cbd5e1;background:#fff">💭 展开/收起 AI 实时推理过程</button>
+      </div>
+
+      <!-- 实时流式思考折叠卡 -->
+      <div id="auditThinkingBox" style="display:none;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:12px 14px;font-family:Consolas,monospace;font-size:12px;line-height:1.6;margin-bottom:12px;white-space:pre-wrap;max-height:180px;overflow-y:auto"></div>
+
+      <!-- 检出敏感项及替换清单 -->
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">📋 检出的敏感风险项与李想合规置换依据：</div>
+      <div id="auditHitsList" style="margin-bottom:14px;display:flex;flex-direction:column;gap:8px"></div>
+
+      <!-- 比对与原地微调区 -->
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+        <span>✏️ 原地微调与采纳（可直接在此编辑修改）：</span>
+        <span style="font-size:12px;color:var(--sub);font-weight:normal">支持人工自由编辑，保存后即刻成为最新发布草稿</span>
+      </div>
+      <div class="form-row" style="margin-bottom:8px">
+        <input type="text" id="auditTitleInp" placeholder="修改后的合规标题" style="flex:1">
+      </div>
+      <textarea id="auditContentInp" style="width:100%;height:160px;font-size:13px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-family:inherit" placeholder="修改后的合规正文…"></textarea>
+    </div>
+
+    <!-- 底部按钮区 -->
+    <div style="display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--line);padding-top:12px;margin-top:8px">
+      <button class="sm" id="btnAuditAcceptAll" style="background:#7c3aed;color:#fff;border-color:#6d28d9;font-weight:700">⚡ 一键采纳全部建议</button>
+      <button class="primary sm" id="btnAuditSaveApply">💾 保存并标记就绪</button>
+      <button class="sm" id="btnAuditCancel">取消</button>
     </div>
   </div>
 </div>
@@ -2127,6 +2541,15 @@ function cardHtml(r){
   }
   if(r.message) extra += '<span>'+esc(r.message)+'</span>';
   if(r.duration) extra += '<span>耗时 '+esc(r.duration)+'s</span>';
+  var auditPill = "";
+  if(r.audit_status === "critical") auditPill = '<span class="pill" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;font-weight:700">🔴 严禁项:《与神对话》/极高风险</span>';
+  else if(r.audit_status === "high") auditPill = '<span class="pill" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a">🟡 待规范:黑关/灵性/修行</span>';
+  else if(r.audit_status === "medium") auditPill = '<span class="pill" style="background:#ffedd5;color:#9a3412;border:1px solid #fed7aa">🟠 需微调:极端饮食</span>';
+  else if(r.audit_status === "safe") auditPill = '<span class="pill" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0">🟢 李想合规通过</span>';
+  else if(r.audit_status === "applied") auditPill = '<span class="pill" style="background:#f3e8ff;color:#6b21a8;border:1px solid #d8b4fe">✓ 已采纳李想合规修润</span>';
+
+  extra += auditPill;
+  extra += '<button class="sm" data-audit-one="'+esc(r.id)+'" style="background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe;font-weight:700">🛡️ 李想合规审查</button>';
   extra += '<button class="sm" data-export-one="'+esc(r.id)+'">📄 导出 Word</button>';
   if(r.has_backup){
     extra += '<span style="color:#059669;font-weight:600">📦 已备份原文</span>';
@@ -2510,12 +2933,143 @@ document.addEventListener("click", function(e){
     call("/api/edit-row", {id: saveId, title: nt, content: nc});
     return;
   }
+  var auditOneId = t.getAttribute("data-audit-one");
+  if(auditOneId){
+    openAuditModal(auditOneId);
+    return;
+  }
   var restoreId = t.getAttribute("data-restore");
   if(restoreId){
     if(!confirm("确认用本机备份还原文章 "+restoreId+" 的原始标题与正文？")) return;
     call("/api/restore-one", {id: restoreId});
   }
 });
+
+
+var curAuditAid = null;
+var curAuditResult = null;
+
+function openAuditModal(aid){
+  curAuditAid = aid;
+  curAuditResult = null;
+  var m = document.getElementById("auditModal");
+  m.style.display = "flex";
+  document.getElementById("auditScore").textContent = "⏳";
+  document.getElementById("auditScore").style.color = "#7c3aed";
+  document.getElementById("auditVerdict").textContent = "正在执行双轮对抗质检（文章 ID: " + aid + "）…";
+  document.getElementById("auditSummary").textContent = "轮次 1：智能修润 Agent 扫描上下文 | 轮次 2：对抗质检 Agent 魔鬼查漏";
+  document.getElementById("auditBadgeHeader").textContent = "双轮分析中…";
+  document.getElementById("auditBadgeHeader").style.background = "#f1f5f9";
+  document.getElementById("auditBadgeHeader").style.color = "#475569";
+  document.getElementById("auditThinkingBox").style.display = "none";
+  document.getElementById("auditThinkingBox").textContent = "正在生成思考过程…";
+  document.getElementById("auditHitsList").innerHTML = '<div style="color:var(--sub);font-size:12.5px">正在逐行排查李想老师合规规则…</div>';
+  document.getElementById("auditTitleInp").value = "";
+  document.getElementById("auditContentInp").value = "";
+
+  fetch("/api/audit/article", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: aid})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    curAuditResult = res;
+    document.getElementById("auditScore").textContent = (res.score || 0) + "分";
+    document.getElementById("auditScore").style.color = res.passed ? "#059669" : "#dc2626";
+    document.getElementById("auditVerdict").textContent = res.passed ? "✓ 经双轮对抗质检，已达到 100% 零死角合规！" : "⚠ 检出敏感风险点，请核对建议并采纳修改";
+    document.getElementById("auditBadgeHeader").textContent = res.passed ? "🟢 100% 合规签发" : "🔴 检出风险待采纳";
+    document.getElementById("auditBadgeHeader").style.background = res.passed ? "#ecfdf5" : "#fee2e2";
+    document.getElementById("auditBadgeHeader").style.color = res.passed ? "#065f46" : "#991b1b";
+
+    var thinking = res.thinking || "暂无思考日志";
+    document.getElementById("auditThinkingBox").textContent = thinking;
+    // 默认如果扣分或有违规，自动展开思考框让用户一目了然
+    if(!res.passed){
+      document.getElementById("auditThinkingBox").style.display = "block";
+    }
+
+    var hits = res.replacements || [];
+    if(hits.length === 0){
+      document.getElementById("auditHitsList").innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid #a7f3d0"><b>✓ 恭喜！</b> 全文未检出《与神对话》、黑关、闭关、极端饮食等任何敏感违规，已完全符合李想老师合规要求。</div>';
+    } else {
+      var hHtml = hits.map(function(h){
+        var isDel = h.after === "（已整段删除）" || !h.after;
+        return '<div style="background:#fff;border:1px solid #e2e8f0;border-left:4px solid '+(isDel?'#dc2626':'#7c3aed')+';border-radius:8px;padding:8px 12px;font-size:12.5px">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">'+
+            '<span style="font-weight:700;color:'+(isDel?'#b91c1c':'#6d28d9')+'">['+esc(h.rule)+']</span>'+
+            '<span style="font-size:11.5px;color:var(--sub)">目标：'+(h.target==="title"?"文章标题":"正文段落")+'</span>'+
+          '</div>'+
+          '<div style="margin:4px 0">'+
+            '<span style="background:#fee2e2;color:#991b1b;padding:2px 6px;border-radius:4px;text-decoration:line-through">'+esc(h.before)+'</span>'+
+            ' &nbsp;→&nbsp; '+
+            '<span style="background:'+(isDel?'#fef2f2':'#ecfdf5')+';color:'+(isDel?'#dc2626':'#065f46')+';padding:2px 6px;border-radius:4px;font-weight:700">'+esc(h.after || "整段剔除")+'</span>'+
+          '</div>'+
+          '<div style="font-size:11.5px;color:var(--sub);margin-top:2px">💡 李想老师指令依据：'+esc(h.reason)+'</div>'+
+        '</div>';
+      }).join("");
+      document.getElementById("auditHitsList").innerHTML = hHtml;
+    }
+
+    document.getElementById("auditTitleInp").value = res.modified_title || "";
+    document.getElementById("auditContentInp").value = res.modified_content || "";
+  }).catch(function(err){
+    document.getElementById("auditVerdict").textContent = "审查请求失败：" + err;
+  });
+}
+
+document.getElementById("btnAuditBatch").onclick = function(){
+  call("/api/audit/scan", {}).then(function(res){
+    if(res && res.stats){
+      alert("🛡️ 李想老师合规全文扫描完成！\n" +
+            "共检查 " + res.stats.total + " 篇：\n" +
+            "🔴 极高风险：《与神对话》/红线 " + res.stats.critical + " 篇\n" +
+            "🟡 待规范：黑关/灵性/修行 " + res.stats.high + " 篇\n" +
+            "🟠 需微调：极端饮食 " + res.stats.medium + " 篇\n" +
+            "🟢 零风险通过 " + res.stats.safe + " 篇\n\n" +
+            "列表已按风险级别为您标记，建议优先处理标红篇目！");
+    }
+    poll();
+  });
+};
+
+document.getElementById("btnToggleThinking").onclick = function(){
+  var box = document.getElementById("auditThinkingBox");
+  box.style.display = box.style.display === "none" ? "block" : "none";
+};
+
+document.getElementById("btnAuditAcceptAll").onclick = function(){
+  if(!curAuditResult) return;
+  document.getElementById("auditTitleInp").value = curAuditResult.modified_title || "";
+  document.getElementById("auditContentInp").value = curAuditResult.modified_content || "";
+  var ti = document.getElementById("auditTitleInp");
+  var ci = document.getElementById("auditContentInp");
+  ti.style.borderColor = "#059669";
+  ci.style.borderColor = "#059669";
+  setTimeout(function(){
+    ti.style.borderColor = "#cbd5e1";
+    ci.style.borderColor = "#cbd5e1";
+  }, 1000);
+};
+
+document.getElementById("btnAuditSaveApply").onclick = function(){
+  if(!curAuditAid) return;
+  var nt = document.getElementById("auditTitleInp").value.trim();
+  var nc = document.getElementById("auditContentInp").value.trim();
+  if(!nc){
+    alert("正文不能为空！");
+    return;
+  }
+  call("/api/edit-row", {id: curAuditAid, title: nt, content: nc}).then(function(){
+    document.getElementById("auditModal").style.display = "none";
+    poll();
+  });
+};
+
+document.getElementById("btnAuditClose").onclick = function(){
+  document.getElementById("auditModal").style.display = "none";
+};
+document.getElementById("btnAuditCancel").onclick = function(){
+  document.getElementById("auditModal").style.display = "none";
+};
 
 initCatalogUI();
 poll();
@@ -2614,6 +3168,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(self.client.poll_qr_login(
                     finalize_popup=bool(body.get("finalize_popup", False))
                 ))
+            elif path == "/api/audit/article":
+                self._json(self.client.audit_single_article(str(body.get("id") or "")))
+            elif path == "/api/audit/scan":
+                self._json(self.client.audit_batch_scan())
             elif path == "/api/export/docx":
                 self._json(self.client.start_export_docx(body.get("ids") or []))
             elif path == "/api/scheme":

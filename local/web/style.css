@@ -98,14 +98,14 @@ a:hover { text-decoration: underline; }
   background: var(--bg-side);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
-  padding: 14px 10px 10px;
+  padding: 10px 8px 8px;
   height: 100%;
   min-height: 0;
   max-height: 100vh;
   overflow-y: auto;
 }
 
-.brand { display: flex; align-items: center; gap: 9px; padding: 0 8px 16px; }
+.brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 10px; }
 .brand-mark {
   width: 24px; height: 24px; border-radius: 7px; flex: none;
   background: var(--text);
@@ -116,13 +116,13 @@ a:hover { text-decoration: underline; }
 
 .nav-group {
   font-size: 11px; color: var(--text-3);
-  padding: 12px 8px 5px;
+  padding: 8px 6px 3px;
 }
 
 .nav-item {
   display: flex; align-items: center; justify-content: space-between;
-  width: 100%; padding: 6px 8px; margin-bottom: 1px;
-  border-radius: var(--r); font-size: 13px;
+  width: 100%; padding: 5px 8px; margin-bottom: 1px;
+  border-radius: var(--r); font-size: 12.5px;
   color: var(--text-2); text-align: left;
   transition: background .1s;
 }
@@ -135,9 +135,9 @@ a:hover { text-decoration: underline; }
 .nav-item em.em-danger:not(:empty) { color: var(--danger); }
 
 .nav-foot {
-  margin-top: auto; padding: 10px 8px 4px;
+  margin-top: auto; padding: 8px 6px 4px;
   border-top: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 4px;
 }
 .who { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2); }
 .dot {
@@ -464,7 +464,7 @@ a:hover { text-decoration: underline; }
 .toast.bad { background: var(--danger); color: #fff; }
 .toast.good { background: var(--ok); color: #fff; }
 
-@media (max-width: 1080px) {
+@media (max-width: 860px) {
   #app { grid-template-columns: 60px 260px minmax(0, 1fr); }
   .brand-text, .nav-group, .nav-foot { display: none; }
   .nav-item span { font-size: 11px; }

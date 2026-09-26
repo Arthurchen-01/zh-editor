@@ -177,6 +177,8 @@ async function loadStatus() {
     if (aiText) aiText.textContent = 'AI 接口异常';
     if (aiDot) aiDot.className = 'dot off';
   }
+  const cloudText = $('#cloud-status-text');
+  if (cloudText && d.version) cloudText.textContent = `云端已连接 · v${d.version}`;
   return d;
 }
 
@@ -952,14 +954,14 @@ async function renderAudit() {
         <span>改动记录 <b>${fmtNum(loc.revisions)}</b> 条</span>
         <span>上传失败 <b>${fmtNum(loc.failed_upload)}</b></span>
       </div></div>
-      <div class="d-body">
+      <div class="d-body" id="d-body">
         <div class="sec-h">线上一致性</div>
         ${rows || '<div class="note">未登录，无法扫描线上。</div>'}
         <div class="sec-h" style="margin-top:22px;">最近操作日志</div>
         <div class="tl">${tail || '<div class="note">暂无</div>'}</div>
       </div>`;
   } catch (e) {
-    $('#detail').innerHTML = `<div class="d-body"><div class="note">审计失败：${esc(e.message)}</div></div>`;
+    $('#detail').innerHTML = `<div class="d-body" id="d-body"><div class="note">审计失败：${esc(e.message)}</div></div>`;
   }
 }
 
@@ -981,13 +983,13 @@ async function renderRules() {
       </div></div>`).join('')}`).join('');
   $('#detail').innerHTML = `<div class="d-head"><div class="d-title">检查规则 · 共 ${d.count} 条</div>
     <div class="d-meta"><span>规则只提供线索，不替代判断。改法请自行确认。</span></div></div>
-    <div class="d-body">${secs}</div>`;
+    <div class="d-body" id="d-body">${secs}</div>`;
 }
 
 function renderExport() {
   $('#detail').innerHTML = `<div class="d-head"><div class="d-title">导出 Word</div>
     <div class="d-meta"><span>每篇一个 .docx 文件，不打包；图片按原始高清分辨率内嵌</span></div></div>
-    <div class="d-body">
+    <div class="d-body" id="d-body">
       <div class="note">
         <b>怎么导出</b><br>
         1. 在左侧列表勾选要导出的文章（可用「全选」）；<br>
@@ -1034,7 +1036,8 @@ function bind() {
       $$('.pill').forEach(p => p.classList.remove('active'));
       $('.pill[data-only="blocked"]').classList.add('active');
     } else if (S.view === 'nobody') {
-      S.only = '';
+      S.only = 'nobody';
+      $$('.pill').forEach(p => p.classList.remove('active'));
     } else {
       S.only = '';
       $$('.pill').forEach(p => p.classList.remove('active'));

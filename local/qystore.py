@@ -437,6 +437,10 @@ class Store:
             args.append(kind)
         if only == "has_brand":
             where.append("title_now LIKE '%清一新教育%'")
+        elif only == "nobody":
+            where.append("doc_id NOT IN (SELECT DISTINCT doc_id FROM snapshots)")
+        elif only == "has_body":
+            where.append("doc_id IN (SELECT DISTINCT doc_id FROM snapshots)")
         elif only == "no_brand":
             where.append("title_now NOT LIKE '%清一新教育%'")
         elif only == "dirty":

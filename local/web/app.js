@@ -1004,16 +1004,21 @@ async function showLoginModal() {
   };
 }
 
-/* ─────────────── 远程更新与启动检测 ─────────────── */
+/* ─────────────── 远程更新与全自动后台静默预载 ─────────────── */
+
+let _updatePollTimer = null;
+let _currentUpInfo = null;
 
 async function checkForUpdates(silent = true) {
   try {
     const res = await api('/api/system/check_update');
     if (res.ok && res.has_update) {
+      _currentUpInfo = res;
       showUpdateBanner(res);
       if (!silent) {
         showUpdateModal(res);
       }
+      startUpdateStatusPolling();
     } else {
       if (!silent) {
         toast(`当前已是最新版本 (v${res.current_version || '1.1.0'})`, 'good');
@@ -1022,6 +1027,33 @@ async function checkForUpdates(silent = true) {
   } catch (e) {
     if (!silent) toast('检查更新失败：' + e.message, 'bad');
   }
+}
+
+function startUpdateStatusPolling() {
+  if (_updatePollTimer) return;
+  _updatePollTimer = setInterval(async () => {
+    try {
+      const st = await api('/api/system/update_status');
+      if (st.ready) {
+        clearInterval(_updatePollTimer);
+        _updatePollTimer = null;
+        if (_currentUpInfo) {
+          _currentUpInfo.ready = true;
+          showUpdateBanner(_currentUpInfo);
+          const modalBtn = $('#modal-btn-update');
+          if (modalBtn) {
+            modalBtn.textContent = '⚡ 立即一键重启生效 (已在后台下载就绪)';
+            modalBtn.style.background = '#16a34a';
+          }
+        }
+      } else if (st.status === 'downloading') {
+        const btnBanner = $('#btn-banner-update');
+        if (btnBanner && !btnBanner.dataset.clicked) {
+          btnBanner.textContent = `后台下载中 ${st.downloaded_mb || 0}M/${st.total_mb || 92}M · 点击即可立即应用`;
+        }
+      }
+    } catch (_) {}
+  }, 1500);
 }
 
 function showUpdateBanner(upInfo) {
@@ -1033,28 +1065,43 @@ function showUpdateBanner(upInfo) {
     const app = $('#app');
     app.parentNode.insertBefore(b, app);
   }
+  const isReady = !!upInfo.ready;
+  const tagText = isReady ? '✓ 新版本已就绪' : '后台静默下载中';
+  const tagBg = isReady ? '#16a34a' : '#cc5500';
+  const btnText = isReady ? '⚡ 立即一键重启生效' : '一键自动更新并重启';
+  const btnStyle = isReady ? 'background:#16a34a;border-color:#16a34a;font-weight:700;' : '';
+  const desc = isReady 
+    ? `已在后台自动预载完成！点击即刻 0 秒原地更新生效并重启`
+    : `后台正在静默下载安装包（支持断点续传），随时点击均可立即一键自动更新`;
+
   b.innerHTML = `
     <div class="update-banner-left">
-      <span class="update-banner-tag">新版本</span>
-      <span>发现新版本 <b>v${esc(upInfo.latest_version)}</b>（当前 v${esc(upInfo.current_version)}）：${esc(upInfo.release_notes || '支持一键免 F12 登录与远程自动更新')}</span>
+      <span class="update-banner-tag" style="background:${tagBg}">${tagText}</span>
+      <span>发现新版本 <b>v${esc(upInfo.latest_version)}</b>（当前 v${esc(upInfo.current_version)}）：${esc(upInfo.release_notes || '常规升级')} · <span style="color:#6b7280">${desc}</span></span>
     </div>
     <div class="update-banner-actions">
-      <button class="btn btn-sm primary" id="btn-banner-update">一键自动更新并重启</button>
+      <button class="btn btn-sm primary" id="btn-banner-update" style="${btnStyle}">${btnText}</button>
       <button class="btn btn-sm" id="btn-banner-dismiss">稍后</button>
     </div>
   `;
   $('#btn-banner-update').onclick = () => doApplyUpdate(upInfo.download_url);
-  $('#btn-banner-dismiss').onclick = () => b.remove();
+  $('#btn-banner-dismiss').onclick = () => {
+    b.remove();
+    if (_updatePollTimer) { clearInterval(_updatePollTimer); _updatePollTimer = null; }
+  };
 }
 
 function showUpdateModal(upInfo) {
+  const isReady = !!upInfo.ready;
+  const btnText = isReady ? '⚡ 立即一键重启生效 (后台已就绪)' : '立即一键更新并重启';
+  const btnStyle = isReady ? 'background:#16a34a;border-color:#16a34a;' : '';
   openModal(`
     <h2>发现新版本 v${esc(upInfo.latest_version)}</h2>
     <p class="sub">发布时间：${esc(upInfo.release_date || '最新')} ｜ 当前版本：v${esc(upInfo.current_version)}</p>
     <div style="background:var(--bg-code);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-size:12px;line-height:1.6;white-space:pre-wrap;margin-bottom:14px">${esc(upInfo.release_notes || '常规性能提升与体验优化')}</div>
     <div class="row">
       <button class="btn" onclick="closeModal()">稍后提醒</button>
-      <button class="btn primary" id="modal-btn-update">立即一键更新并重启</button>
+      <button class="btn primary" id="modal-btn-update" style="${btnStyle}">${btnText}</button>
     </div>
   `);
   $('#modal-btn-update').onclick = () => {
@@ -1065,15 +1112,20 @@ function showUpdateModal(upInfo) {
 
 async function doApplyUpdate(downloadUrl) {
   try {
-    toast('正在连接云端下载更新，请稍候…', 'good');
+    const btn = $('#btn-banner-update');
+    if (btn) { btn.dataset.clicked = '1'; btn.disabled = true; btn.textContent = '正在准备重启...'; }
+    toast('✓ 正在准备原地静默更新并自动重启，请稍候…', 'good');
     const res = await api('/api/system/apply_update', { download_url: downloadUrl });
     if (res.ok && res.task_id) {
       runTask(res.task_id, '一键自动更新并重启');
     } else {
       toast(res.error || '启动更新失败', 'bad');
+      if (btn) { btn.disabled = false; btn.textContent = '一键自动更新并重启'; }
     }
   } catch (e) {
     toast('更新异常：' + e.message, 'bad');
+    const btn = $('#btn-banner-update');
+    if (btn) { btn.disabled = false; btn.textContent = '一键自动更新并重启'; }
   }
 }
 

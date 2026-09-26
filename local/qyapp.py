@@ -241,7 +241,8 @@ class Workbench:
             if t:
                 self.tasks.step(t, pct, 100, msg)
                 self.tasks.say(t, msg)
-        return qyupdate.perform_background_update(download_url, progress_cb=_cb)
+        target_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path("D:/软件")
+        return qyupdate.apply_instant_update(target_dir=target_dir, progress_cb=_cb)
 
     def plane(self) -> qp.LocalPlane:
         with self._lock:
@@ -858,6 +859,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/system/check_update":
             return self._json(wb.check_update())
+
+        if p == "/api/system/update_status":
+            return self._json(qyupdate.get_silent_update_status())
 
         return self._err(RuntimeError(f"未知接口 {p}"), 404)
 

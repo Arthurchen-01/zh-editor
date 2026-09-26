@@ -163,8 +163,10 @@ class LocalPlane:
                 got += s.list_articles(cap=cap)
             elif kind == "answer":
                 got += s.list_answers(cap=cap)
-            elif kind == "pin":
+            elif kind in ("pin", "thought"):
                 got += s.list_pins(cap=cap)
+            elif kind == "question":
+                got += s.list_questions(cap=cap)
         self.store.log("inspect", None,
                        f"kinds={list(kinds)} 取回 {len(got)} 条 with_body={with_body}")
 

@@ -447,6 +447,10 @@ class Store:
             where.append("kind='article'")
         elif only == "answer":
             where.append("kind='answer'")
+        elif only in ("pin", "thought"):
+            where.append("kind='pin'")
+        elif only == "question":
+            where.append("kind='question'")
         if where:
             sql += " WHERE " + " AND ".join(where)
         # 白名单排序，避免拼接注入
@@ -476,6 +480,8 @@ class Store:
             "documents": g("SELECT COUNT(*) FROM documents"),
             "articles": g("SELECT COUNT(*) FROM documents WHERE kind='article'"),
             "answers": g("SELECT COUNT(*) FROM documents WHERE kind='answer'"),
+            "pins": g("SELECT COUNT(*) FROM documents WHERE kind='pin'"),
+            "questions": g("SELECT COUNT(*) FROM documents WHERE kind='question'"),
             "total_comments": g("SELECT SUM(comment_count) FROM documents") or 0,
             "total_votes": g("SELECT SUM(voteup_count) FROM documents") or 0,
             "branded": g("SELECT COUNT(*) FROM documents WHERE title_now LIKE '%清一新教育%'"),

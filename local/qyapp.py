@@ -345,7 +345,14 @@ class Workbench:
         imgs = qs.image_manifest(body)
         chk = self.store.latest_check(doc_id)
         kind = doc.get("kind") or "article"
-        url = doc.get("url") or (f"https://www.zhihu.com/answer/{doc_id}" if kind == "answer" else f"https://zhuanlan.zhihu.com/p/{doc_id}")
+        if kind == "answer":
+            url = f"https://www.zhihu.com/answer/{doc_id}"
+        elif kind in ("pin", "thought"):
+            url = f"https://www.zhihu.com/pin/{doc_id}"
+        elif kind == "question":
+            url = f"https://www.zhihu.com/question/{doc_id}"
+        else:
+            url = doc.get("url") or f"https://zhuanlan.zhihu.com/p/{doc_id}"
         return {
             "doc": dict(doc),
             "title": title,
@@ -376,10 +383,17 @@ class Workbench:
     # ---------------- 评论拉取 ---------------- #
 
     def comments(self, doc_id: str, limit: int = 30, offset: str = "") -> Dict[str, Any]:
-        """从知乎接口拉取当前文章/回答的真实读者评论。"""
+        """从知乎接口拉取当前文章/回答/想法的真实读者评论。"""
         doc = self.store.get_document(doc_id)
         kind = (doc.get("kind") if doc else None) or "article"
-        base_endpoint = "answers" if kind == "answer" else "articles"
+        if kind == "answer":
+            base_endpoint = "answers"
+        elif kind in ("pin", "thought"):
+            base_endpoint = "pins"
+        elif kind == "question":
+            base_endpoint = "questions"
+        else:
+            base_endpoint = "articles"
         url = f"https://www.zhihu.com/api/v4/comment_v5/{base_endpoint}/{doc_id}/root_comment?order_by=score&limit={limit}&offset={offset}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",

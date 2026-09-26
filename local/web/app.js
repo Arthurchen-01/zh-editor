@@ -128,6 +128,8 @@ async function loadStatus() {
   $('#n-docs').textContent = fmtNum(st.documents);
   if ($('#n-articles')) $('#n-articles').textContent = fmtNum(st.articles || 244);
   if ($('#n-answers')) $('#n-answers').textContent = fmtNum(st.answers || 3);
+  if ($('#n-pins')) $('#n-pins').textContent = fmtNum(st.pins || 15);
+  if ($('#n-questions')) $('#n-questions').textContent = fmtNum(st.questions || 2);
   $('#n-blocked').textContent = fmtNum(st.blocked);
   $('#n-rules').textContent = fmtNum(d.rules);
   $('#n-nobody').textContent = fmtNum(Math.max(0, (st.documents || 0) - (st.snapshots || 0)));
@@ -183,6 +185,10 @@ function renderList() {
     const tags = [];
     if (it.kind === 'answer') {
       tags.push(`<span class="tag info" style="background:#e0f2fe;color:#0369a1;font-weight:600">知乎回答</span>`);
+    } else if (it.kind === 'pin') {
+      tags.push(`<span class="tag info" style="background:#f3e8ff;color:#7e22ce;font-weight:600">知乎想法</span>`);
+    } else if (it.kind === 'question') {
+      tags.push(`<span class="tag info" style="background:#fef3c7;color:#b45309;font-weight:600">知乎提问</span>`);
     }
     if (lv === 'block') tags.push(`<span class="tag block">阻断 ${it.check_hits}</span>`);
     else if (lv === 'warn') tags.push(`<span class="tag warn">提醒 ${it.check_hits}</span>`);
@@ -247,6 +253,10 @@ function renderDetail() {
   const nUp = d.voteup_count || ((d.doc && d.doc.voteup_count) || 0);
   const kindTag = d.kind === 'answer'
     ? `<span class="tag info" style="background:#e0f2fe;color:#0369a1;font-weight:600">知乎回答</span>`
+    : d.kind === 'pin'
+    ? `<span class="tag info" style="background:#f3e8ff;color:#7e22ce;font-weight:600">知乎想法</span>`
+    : d.kind === 'question'
+    ? `<span class="tag info" style="background:#fef3c7;color:#b45309;font-weight:600">知乎提问</span>`
     : `<span class="tag" style="background:#f1f5f9;color:#475569">专栏文章</span>`;
 
   $('#detail').innerHTML = `
@@ -536,21 +546,21 @@ async function doInspect(withBody, silent = false) {
     bodyLimit = Number(input) || 0;
   }
   if (silent) {
-    toast('正在自动从知乎同步文章与回答列表…', 'good');
+    toast('正在自动从知乎同步全量内容（文章、回答、想法、提问）…', 'good');
   }
   try {
     const r = await api('/api/inspect', {
-      kinds: ['article', 'answer'], cap: 0, with_body: withBody, body_limit: bodyLimit
+      kinds: ['article', 'answer', 'pin', 'question'], cap: 0, with_body: withBody, body_limit: bodyLimit
     });
     if (silent) {
       pollTaskSilently(r.task_id, async () => {
         await loadStatus();
         await loadList();
         const cnt = S.stats.documents || 0;
-        toast(`✓ 文章与回答同步完成（共 ${cnt} 篇）`, 'good');
+        toast(`✓ 全量内容同步完成（共 ${cnt} 篇）`, 'good');
       });
     } else {
-      runTask(r.task_id, withBody ? '同步列表 + 正文' : '同步文章与回答', async () => {
+      runTask(r.task_id, withBody ? '同步列表 + 正文' : '同步全量内容（文章/回答/想法/提问）', async () => {
         await loadStatus();
         await loadList();
       });
@@ -868,6 +878,14 @@ function bind() {
       S.only = 'answer';
       $$('.pill').forEach(p => p.classList.remove('active'));
       const p = $('.pill[data-only="answer"]'); if (p) p.classList.add('active');
+    } else if (S.view === 'pins') {
+      S.only = 'pin';
+      $$('.pill').forEach(p => p.classList.remove('active'));
+      const p = $('.pill[data-only="pin"]'); if (p) p.classList.add('active');
+    } else if (S.view === 'questions') {
+      S.only = 'question';
+      $$('.pill').forEach(p => p.classList.remove('active'));
+      const p = $('.pill[data-only="question"]'); if (p) p.classList.add('active');
     } else if (S.view === 'blocked') {
       S.only = 'blocked';
       $$('.pill').forEach(p => p.classList.remove('active'));
@@ -886,6 +904,20 @@ function bind() {
     $$('.pill').forEach(x => x.classList.remove('active'));
     p.classList.add('active');
     S.only = p.dataset.only;
+    $$('.nav-item').forEach(x => x.classList.remove('active'));
+    if (S.only === 'article') {
+      const nb = $('.nav-item[data-view="articles"]'); if (nb) nb.classList.add('active');
+    } else if (S.only === 'answer') {
+      const nb = $('.nav-item[data-view="answers"]'); if (nb) nb.classList.add('active');
+    } else if (S.only === 'pin') {
+      const nb = $('.nav-item[data-view="pins"]'); if (nb) nb.classList.add('active');
+    } else if (S.only === 'question') {
+      const nb = $('.nav-item[data-view="questions"]'); if (nb) nb.classList.add('active');
+    } else if (S.only === 'blocked') {
+      const nb = $('.nav-item[data-view="blocked"]'); if (nb) nb.classList.add('active');
+    } else if (!S.only) {
+      const nb = $('.nav-item[data-view="library"]') || $('.nav-item[data-view="all"]'); if (nb) nb.classList.add('active');
+    }
     await loadList();
   });
 

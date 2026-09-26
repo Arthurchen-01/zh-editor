@@ -1305,6 +1305,31 @@ class QingyiTitleSigner:
         self._normalise_counts(out)
         return out
 
+    def list_questions(self, cap: int = 0) -> List[Dict[str, Any]]:
+        items = self._paginate(
+            f"https://www.zhihu.com/api/v4/members/{self.url_token}/questions",
+            cap=cap)
+        out = []
+        for q in items:
+            if not q.get("id"):
+                continue
+            title = q.get("title") or "(提问)"
+            out.append({
+                "id": str(q["id"]),
+                "type": "question",
+                "kind_label": "提问",
+                "title": title,
+                "has_brand": BRAND in title,
+                "created": q.get("created"),
+                "updated": q.get("updated_time") or q.get("created"),
+                "voteup_count": 0,
+                "comment_count": 0,
+                "url": f"https://www.zhihu.com/question/{q['id']}",
+                "excerpt": title,
+                "note": "知乎提问",
+            })
+        return out
+
     # ---------------- read / write ---------------- #
 
     def get_article_draft(self, aid: str) -> Dict[str, Any]:

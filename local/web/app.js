@@ -236,7 +236,28 @@ function renderList() {
 
 function updateSelCount() {
   const n = S.sel.size;
-  $('#sel-count').textContent = n ? `已选 ${n} 篇` : '未选中';
+  const foot = $('#list-foot');
+  const countSpan = $('#sel-count');
+  const btnClear = $('#btn-clear-sel');
+  const btnCheck = $('#btn-check');
+  const btnSync = $('#btn-sel-sync-body');
+  const btnExp = $('#btn-export');
+
+  if (n > 0) {
+    if (foot) foot.classList.add('has-selection');
+    if (countSpan) countSpan.textContent = `✓ 已选 ${n} 篇`;
+    if (btnClear) btnClear.style.display = 'inline-block';
+    if (btnCheck) { btnCheck.textContent = `🔍 检查(${n})`; btnCheck.disabled = false; }
+    if (btnSync) { btnSync.textContent = `📥 正文(${n})`; btnSync.disabled = false; }
+    if (btnExp) { btnExp.textContent = `📄 导出(${n})`; btnExp.disabled = false; }
+  } else {
+    if (foot) foot.classList.remove('has-selection');
+    if (countSpan) countSpan.textContent = '未勾选文章';
+    if (btnClear) btnClear.style.display = 'none';
+    if (btnCheck) { btnCheck.textContent = '🔍 检查'; btnCheck.disabled = true; }
+    if (btnSync) { btnSync.textContent = '📥 正文'; btnSync.disabled = true; }
+    if (btnExp) { btnExp.textContent = '📄 导出'; btnExp.disabled = true; }
+  }
 }
 
 /* ─────────────── 详情 ─────────────── */
@@ -263,7 +284,7 @@ function renderDetail() {
   const nF = ((chk.findings) || []).length;
   const nRev = (d.revisions || []).length;
   const cons = d.consistency || {};
-  const flag = cons.status && cons.status !== 'ok'
+  const flag = (cons.status && cons.status !== 'ok') ? `<span class="tag block">${esc(cons.status)}</span>` : '';
   const nCm = d.comment_count || ((d.doc && d.doc.comment_count) || 0);
   const nUp = d.voteup_count || ((d.doc && d.doc.voteup_count) || 0);
   const kindTag = d.kind === 'answer'
@@ -273,6 +294,10 @@ function renderDetail() {
     : d.kind === 'question'
     ? `<span class="tag info" style="background:#fef3c7;color:#b45309;font-weight:600">知乎提问</span>`
     : `<span class="tag" style="background:#f1f5f9;color:#475569">专栏文章</span>`;
+
+  const bodyBtn = !d.has_body ? `
+    <button class="btn primary" id="btn-fetch-body" style="background:#cc5500;border-color:#cc5500;font-weight:700">📥 立即拉取并同步此篇正文</button>
+  ` : '';
 
   $('#detail').innerHTML = `
     <div class="d-head">
@@ -296,6 +321,7 @@ function renderDetail() {
     </div>
     <div class="d-body" id="d-body">${renderTab()}</div>
     <div class="d-foot">
+      ${bodyBtn}
       <button class="btn primary" id="btn-dual-ai" style="background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600">🤖 双轮 AI 智能修润与质检</button>
       <button class="btn" id="btn-export1">导出 Word</button>
       <button class="btn" id="btn-aiprompt">取 AI 提示词</button>
@@ -307,6 +333,11 @@ function renderDetail() {
   $$('#detail .tab').forEach(t => t.onclick = () => {
     S.tab = t.dataset.tab; renderDetail();
   });
+  const bfb = $('#btn-fetch-body');
+  if (bfb) bfb.onclick = () => doSyncBody([d.doc.doc_id]);
+  const bbf = $('#btn-banner-fetch-body');
+  if (bbf) bbf.onclick = () => doSyncBody([d.doc.doc_id]);
+
   $('#btn-dual-ai').onclick = () => showDualAiModal(d.doc.doc_id);
   $('#btn-export1').onclick = () => doExport([d.doc.doc_id]);
   $('#btn-check1').onclick = () => doCheck([d.doc.doc_id], true);
@@ -329,6 +360,18 @@ function renderTab() {
 
 function renderCheck() {
   const d = S.cur;
+  if (!d.has_body) {
+    return `
+      <div class="card warn" style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-weight:700;color:#92400e;font-size:14px;margin-bottom:4px">⚠️ 此篇尚未同步正文（仅有标题元数据）</div>
+          <div style="font-size:12px;color:#b45309">立即拉取此篇的正文内容后，即可进行规则检查、双轮 AI 智能质检与 Word 导出。</div>
+        </div>
+        <button class="btn primary" id="btn-banner-fetch-body" style="background:#cc5500;border-color:#cc5500;font-weight:700;white-space:nowrap;padding:7px 16px">📥 立即拉取并同步正文</button>
+      </div>
+      <div class="note">这篇还没拉取正文内容。点击上方或下方按钮立即同步正文。</div>
+    `;
+  }
   const chk = d.check;
   if (!chk) {
     return `<div class="note">这篇还没检查过。点下方「重新检查」跑一遍规则引擎
@@ -374,7 +417,16 @@ function lvName(l) {
 function renderArticle() {
   const d = S.cur;
   if (!d.has_body) {
-    return `<div class="note">本地还没有这篇的正文。点左侧「同步正文」拉取。</div>`;
+    return `
+      <div class="card warn" style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-weight:700;color:#92400e;font-size:14px;margin-bottom:4px">⚠️ 此篇尚未同步正文（仅有标题元数据）</div>
+          <div style="font-size:12px;color:#b45309">点击右侧按钮立即拉取此篇知乎正文内容与图片。</div>
+        </div>
+        <button class="btn primary" id="btn-banner-fetch-body" style="background:#cc5500;border-color:#cc5500;font-weight:700;white-space:nowrap;padding:7px 16px">📥 立即拉取并同步正文</button>
+      </div>
+      <div class="note">本地还没有这篇的正文。点上方或左下角「同步正文」拉取。</div>
+    `;
   }
   const clean = (d.body_html || '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -606,6 +658,28 @@ function bindTab() {
 }
 
 /* ─────────────── 动作 ─────────────── */
+
+async function doSyncBody(ids) {
+  if (!ids || !ids.length) return toast('请先选择需要同步正文的内容', 'bad');
+  try {
+    const r = await api('/api/sync_body', { doc_ids: ids });
+    if (r.ok && r.task_id) {
+      runTask(r.task_id, `同步正文 · ${ids.length} 篇`, async (t) => {
+        const res = t.result || {};
+        toast(`✓ 已完成正文同步（成功 ${res.ok_count ?? ids.length} 篇）`, 'good');
+        await loadStatus();
+        await loadList();
+        if (S.cur && ids.includes(S.cur.doc.doc_id)) {
+          await openArticle(S.cur.doc.doc_id);
+        }
+      });
+    } else {
+      toast(r.error || '同步正文启动失败', 'bad');
+    }
+  } catch (e) {
+    toast('同步正文异常：' + e.message, 'bad');
+  }
+}
 
 async function doInspect(withBody, silent = false) {
   let bodyLimit = 0;
@@ -1000,6 +1074,17 @@ function bind() {
   $('#btn-sync-body').onclick = () => doInspect(true);
   $('#btn-check').onclick = () => doCheck(Array.from(S.sel));
   $('#btn-export').onclick = () => doExport(Array.from(S.sel));
+
+  const btnSelSync = $('#btn-sel-sync-body');
+  if (btnSelSync) btnSelSync.onclick = () => doSyncBody(Array.from(S.sel));
+
+  const btnClearSel = $('#btn-clear-sel');
+  if (btnClearSel) btnClearSel.onclick = () => {
+    S.sel.clear();
+    const chkAll = $('#sel-all');
+    if (chkAll) chkAll.checked = false;
+    renderList();
+  };
 
   $('#sel-all').onchange = e => {
     if (e.target.checked) S.items.forEach(i => S.sel.add(i.doc_id));

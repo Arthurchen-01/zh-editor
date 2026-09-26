@@ -100,11 +100,15 @@
     <div class="list-body" id="list-body">
       <div class="empty">正在载入…</div>
     </div>
-    <div class="list-foot">
-      <span id="sel-count">未选中</span>
-      <div class="foot-actions">
-        <button class="mini" id="btn-check">检查</button>
-        <button class="mini" id="btn-export">导出</button>
+    <div class="list-foot" id="list-foot">
+      <div class="list-foot-top">
+        <span id="sel-count">未勾选文章</span>
+        <button class="mini link" id="btn-clear-sel" style="display:none;color:var(--text-3);padding:1px 6px;font-size:11px" title="清空勾选">✕ 清空</button>
+      </div>
+      <div class="foot-actions" id="foot-actions">
+        <button class="mini primary" id="btn-check" disabled title="对勾选内容批量运行敏感词与合规检查">🔍 检查</button>
+        <button class="mini" id="btn-sel-sync-body" disabled title="批量拉取并同步已勾选文章的正文">📥 正文</button>
+        <button class="mini" id="btn-export" disabled title="将勾选内容批量导出为 Word 文档">📄 导出</button>
       </div>
     </div>
   </section>

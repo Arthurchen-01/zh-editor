@@ -85,7 +85,11 @@ a:hover { text-decoration: underline; }
 #app {
   display: grid;
   grid-template-columns: 196px 306px minmax(0, 1fr);
+  grid-template-rows: 100%;
   height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ───────────────────────── 左：导航 ───────────────────────── */
@@ -95,6 +99,9 @@ a:hover { text-decoration: underline; }
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
   padding: 14px 10px 10px;
+  height: 100%;
+  min-height: 0;
+  max-height: 100vh;
   overflow-y: auto;
 }
 
@@ -152,9 +159,11 @@ a:hover { text-decoration: underline; }
   background: var(--bg-list);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; min-width: 0;
+  height: 100%; min-height: 0; max-height: 100vh; overflow: hidden;
 }
 
 .list-head {
+  flex: none;
   padding: 12px 12px 10px;
   border-bottom: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 9px;
@@ -183,7 +192,7 @@ a:hover { text-decoration: underline; }
 .mini.chk { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .mini.chk input { margin: 0; }
 
-.list-body { flex: 1; overflow-y: auto; }
+.list-body { flex: 1; min-height: 0; overflow-y: auto; }
 
 .item {
   padding: 10px 12px;
@@ -217,17 +226,42 @@ a:hover { text-decoration: underline; }
 .tag.mute  { background: var(--bg-active);   color: var(--text-3); }
 
 .list-foot {
-  padding: 8px 12px; border-top: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 11px; color: var(--text-3);
+  flex: none;
+  padding: 8px 10px; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: 11.5px; color: var(--text-2); background: var(--bg-list);
+  transition: all .2s ease;
 }
-.foot-actions { display: flex; gap: 6px; }
+.list-foot-top {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.list-foot.has-selection {
+  background: #fff7ed;
+  border-top: 2px solid var(--accent, #cc5500);
+  box-shadow: 0 -2px 10px rgba(204, 85, 0, 0.08);
+}
+.list-foot.has-selection #sel-count {
+  font-weight: 700;
+  color: var(--accent, #cc5500);
+}
+.foot-actions {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;
+}
+.foot-actions .mini {
+  padding: 5px 0; text-align: center; white-space: nowrap; font-size: 11px;
+}
 
 /* ───────────────────────── 右：详情 ───────────────────────── */
 
-.detail { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.detail {
+  display: flex; flex-direction: column; min-width: 0;
+  height: 100%; min-height: 0; max-height: 100vh; overflow: hidden;
+}
 
-.d-head { padding: 14px 20px 0; border-bottom: 1px solid var(--border); }
+.d-head {
+  flex: none;
+  padding: 14px 20px 0; border-bottom: 1px solid var(--border);
+}
 .d-title {
   font-size: 15px; font-weight: 600; line-height: 1.45;
   margin-bottom: 9px; word-break: break-word;
@@ -244,11 +278,13 @@ a:hover { text-decoration: underline; }
 .tab.active { color: var(--text); border-bottom-color: var(--text); font-weight: 500; }
 .tab em { font-style: normal; font-size: 11px; color: var(--text-3); margin-left: 4px; }
 
-.d-body { flex: 1; overflow-y: auto; padding: 16px 20px 24px; }
+.d-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 24px; }
 
 .d-foot {
+  flex: none;
   padding: 10px 20px; border-top: 1px solid var(--border);
-  display: flex; gap: 8px; align-items: center;
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  background: var(--bg);
 }
 .btn {
   padding: 6px 14px; border-radius: var(--r); font-size: 12px;

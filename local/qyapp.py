@@ -1090,6 +1090,23 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"ok": True, "task_id": wb.tasks.spawn("同步", _job)})
 
+        if p == "/api/sync_body":
+            ids = b.get("doc_ids") or []
+            if not ids:
+                return self._err(RuntimeError("没有选中要同步正文的文章"))
+
+            def _job(t: Dict[str, Any]) -> Any:
+                wb.tasks.say(t, f"开始同步 {len(ids)} 篇正文...")
+                plane = wb.plane()
+                r2 = plane.sync_body(
+                    [str(x) for x in ids],
+                    progress=lambda s, i, n: wb.tasks.step(t, i, n, str(s)))
+                wb.tasks.say(t, f"正文同步完成：成功 {r2.get('ok_count', 0)} / 失败 {r2.get('fail', 0)}")
+                return r2
+
+            return self._json({"ok": True,
+                               "task_id": wb.tasks.spawn("同步正文", _job)})
+
         if p == "/api/check":
             ids = b.get("doc_ids") or []
             if not ids:

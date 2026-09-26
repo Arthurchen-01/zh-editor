@@ -443,11 +443,15 @@ class Store:
             where.append("upload_status='dirty'")
         elif only == "blocked":
             where.append("check_status='block'")
+        elif only == "article":
+            where.append("kind='article'")
+        elif only == "answer":
+            where.append("kind='answer'")
         if where:
             sql += " WHERE " + " AND ".join(where)
         # 白名单排序，避免拼接注入
         if order not in ("updated_at DESC", "updated_at ASC", "title_now ASC",
-                         "synced_at DESC", "image_count DESC"):
+                         "synced_at DESC", "image_count DESC", "comment_count DESC", "voteup_count DESC"):
             order = "updated_at DESC"
         sql += f" ORDER BY {order}"
         if limit:
@@ -470,6 +474,10 @@ class Store:
         g = lambda sql, a=(): (self._one(sql, a) or [0])[0]  # noqa: E731
         return {
             "documents": g("SELECT COUNT(*) FROM documents"),
+            "articles": g("SELECT COUNT(*) FROM documents WHERE kind='article'"),
+            "answers": g("SELECT COUNT(*) FROM documents WHERE kind='answer'"),
+            "total_comments": g("SELECT SUM(comment_count) FROM documents") or 0,
+            "total_votes": g("SELECT SUM(voteup_count) FROM documents") or 0,
             "branded": g("SELECT COUNT(*) FROM documents WHERE title_now LIKE '%清一新教育%'"),
             "unbranded": g("SELECT COUNT(*) FROM documents WHERE title_now NOT LIKE '%清一新教育%'"),
             "dirty": g("SELECT COUNT(*) FROM documents WHERE upload_status='dirty'"),

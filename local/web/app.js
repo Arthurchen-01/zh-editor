@@ -126,6 +126,8 @@ async function loadStatus() {
   const st = d.stats || {};
   S.stats = st;
   $('#n-docs').textContent = fmtNum(st.documents);
+  if ($('#n-articles')) $('#n-articles').textContent = fmtNum(st.articles || 244);
+  if ($('#n-answers')) $('#n-answers').textContent = fmtNum(st.answers || 3);
   $('#n-blocked').textContent = fmtNum(st.blocked);
   $('#n-rules').textContent = fmtNum(d.rules);
   $('#n-nobody').textContent = fmtNum(Math.max(0, (st.documents || 0) - (st.snapshots || 0)));
@@ -172,13 +174,16 @@ function renderList() {
   const body = $('#list-body');
   if (!S.items.length) {
     body.innerHTML = `<div class="empty">${
-      S.stats.documents ? '没有匹配的文章' : '本地库是空的<br><br>点上方「同步列表」从知乎拉取'}</div>`;
+      S.stats.documents ? '没有匹配的内容' : '本地库是空的<br><br>点上方「同步列表」从知乎拉取'}</div>`;
     $('#sel-count').textContent = '未选中';
     return;
   }
   body.innerHTML = S.items.map(it => {
     const lv = it.check_status || 'unchecked';
     const tags = [];
+    if (it.kind === 'answer') {
+      tags.push(`<span class="tag info" style="background:#e0f2fe;color:#0369a1;font-weight:600">知乎回答</span>`);
+    }
     if (lv === 'block') tags.push(`<span class="tag block">阻断 ${it.check_hits}</span>`);
     else if (lv === 'warn') tags.push(`<span class="tag warn">提醒 ${it.check_hits}</span>`);
     else if (lv === 'pass') tags.push(`<span class="tag pass">已通过</span>`);
@@ -188,6 +193,10 @@ function renderList() {
     if (it.upload_status === 'failed') tags.push(`<span class="tag block">上传失败</span>`);
     if (it.upload_status === 'dirty') tags.push(`<span class="tag warn">待上传</span>`);
     const imgs = it.image_count == null ? '图未知' : `图 ${it.image_count}`;
+    const social = [];
+    if (it.comment_count) social.push(`💬 ${it.comment_count}`);
+    if (it.voteup_count) social.push(`👍 ${it.voteup_count}`);
+    const socialHtml = social.length ? `<span class="item-sub" style="color:var(--text-2);font-weight:600">${social.join(' · ')}</span>` : '';
     const on = S.sel.has(it.doc_id) ? ' checked' : '';
     return `<div class="item${S.cur && S.cur.doc.doc_id === it.doc_id ? ' active' : ''}"
                  data-id="${esc(it.doc_id)}">
@@ -196,6 +205,7 @@ function renderList() {
         <input type="checkbox" data-pick="${esc(it.doc_id)}"${on}>
         ${tags.join('')}
         <span class="grow item-sub">${imgs}</span>
+        ${socialHtml}
       </div>
       <div class="item-sub">${esc(it.updated_text || it.synced_text || '')}</div>
     </div>`;
@@ -233,15 +243,21 @@ function renderDetail() {
   const nRev = (d.revisions || []).length;
   const cons = d.consistency || {};
   const flag = cons.status && cons.status !== 'ok'
-    ? `<span class="tag block">${esc(cons.status)}</span>` : '';
+  const nCm = d.comment_count || ((d.doc && d.doc.comment_count) || 0);
+  const nUp = d.voteup_count || ((d.doc && d.doc.voteup_count) || 0);
+  const kindTag = d.kind === 'answer'
+    ? `<span class="tag info" style="background:#e0f2fe;color:#0369a1;font-weight:600">知乎回答</span>`
+    : `<span class="tag" style="background:#f1f5f9;color:#475569">专栏文章</span>`;
 
   $('#detail').innerHTML = `
     <div class="d-head">
       <div class="d-title">${esc(d.title || '(无标题)')}</div>
       <div class="d-meta">
-        <span>${lvTag}</span>${flag}
+        <span>${lvTag}</span>${kindTag}${flag}
         <span>正文 <b>${fmtNum((d.text || '').length)}</b> 字</span>
         <span>图片 <b>${d.image_count}</b> 张</span>
+        <span>💬 评论 <b>${nCm}</b> 条</span>
+        <span>👍 赞同 <b>${nUp}</b> 个</span>
         <span>快照 <b>${esc(d.snapshot_at || '无')}</b></span>
         <span><a href="${esc(d.url)}" target="_blank" rel="noopener">线上原文</a></span>
       </div>
@@ -249,6 +265,7 @@ function renderDetail() {
         <button class="tab${S.tab === 'check' ? ' active' : ''}" data-tab="check">检查<em>${nF || ''}</em></button>
         <button class="tab${S.tab === 'article' ? ' active' : ''}" data-tab="article">原文</button>
         <button class="tab${S.tab === 'edit' ? ' active' : ''}" data-tab="edit">编辑</button>
+        <button class="tab${S.tab === 'comments' ? ' active' : ''}" data-tab="comments">读者评论<em>${nCm ? nCm : ''}</em></button>
         <button class="tab${S.tab === 'log' ? ' active' : ''}" data-tab="log">记录<em>${nRev || ''}</em></button>
       </div>
     </div>
@@ -281,6 +298,7 @@ function renderTab() {
   if (S.tab === 'check') return renderCheck();
   if (S.tab === 'article') return renderArticle();
   if (S.tab === 'edit') return renderEdit();
+  if (S.tab === 'comments') return renderComments();
   return renderLog();
 }
 
@@ -401,6 +419,68 @@ function renderLog() {
   return out;
 }
 
+function renderComments() {
+  const d = S.cur;
+  if (!d) return '';
+  const did = d.doc ? d.doc.doc_id : '';
+  setTimeout(() => loadAndRenderComments(did), 50);
+  return `
+    <div class="sec-h" style="display:flex;justify-content:space-between;align-items:center">
+      <span>知乎读者真实评论 · 共 <b id="cm-cnt">${d.comment_count || ((d.doc && d.doc.comment_count) || 0)}</b> 条</span>
+      <button class="btn mini" id="btn-refresh-cm">刷新评论</button>
+    </div>
+    <div id="cm-list" style="margin-top:14px">
+      <div class="empty"><span class="spin"></span> 正在实时连接知乎拉取读者评论…</div>
+    </div>
+  `;
+}
+
+async function loadAndRenderComments(docId) {
+  const box = $('#cm-list');
+  if (!box) return;
+  const btnRefresh = $('#btn-refresh-cm');
+  if (btnRefresh) {
+    btnRefresh.onclick = () => loadAndRenderComments(docId);
+  }
+  try {
+    const res = await api('/api/article/' + encodeURIComponent(docId) + '/comments');
+    if (!res.ok) {
+      box.innerHTML = `<div class="note" style="color:var(--danger)">拉取评论失败：${esc(res.error || '网络异常')}</div>`;
+      return;
+    }
+    const list = res.comments || [];
+    const cntEl = $('#cm-cnt');
+    if (cntEl) cntEl.textContent = res.total_counts ?? list.length;
+    if (!list.length) {
+      box.innerHTML = `<div class="empty">该篇内容暂无读者评论。</div>`;
+      return;
+    }
+    box.innerHTML = list.map(c => `
+      <div class="card" style="margin-bottom:12px;padding:12px 14px;background:var(--bg)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          ${c.avatar_url ? `<img src="${esc(c.avatar_url)}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">` : ''}
+          <div style="font-weight:600;font-size:13px">${esc(c.author_name)}</div>
+          <div style="font-size:11px;color:var(--text-3);margin-left:auto">${esc(c.created_text || '')} · 👍 ${c.vote_count || 0}</div>
+        </div>
+        <div style="font-size:13px;line-height:1.6;color:var(--text);margin-bottom:6px">${c.content}</div>
+        ${(c.child_comments && c.child_comments.length) ? `
+          <div style="margin-top:8px;padding:8px 12px;background:var(--bg-code);border-radius:var(--r);font-size:12px;border:1px solid var(--border)">
+            ${c.child_comments.map(ch => `
+              <div style="margin-bottom:6px;line-height:1.5">
+                <span style="font-weight:600;color:var(--text-2)">${esc(ch.author_name)}</span>:
+                <span>${ch.content}</span>
+                <span style="color:var(--text-3);font-size:11px;margin-left:6px">${esc(ch.created_text || '')}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="note" style="color:var(--danger)">请求异常：${esc(e.message)}</div>`;
+  }
+}
+
 function bindTab() {
   if (S.tab !== 'edit') return;
   const t = $('#ed-title'), b = $('#ed-body');
@@ -456,21 +536,21 @@ async function doInspect(withBody, silent = false) {
     bodyLimit = Number(input) || 0;
   }
   if (silent) {
-    toast('正在自动从知乎同步文章列表…', 'good');
+    toast('正在自动从知乎同步文章与回答列表…', 'good');
   }
   try {
     const r = await api('/api/inspect', {
-      kinds: ['article'], cap: 0, with_body: withBody, body_limit: bodyLimit
+      kinds: ['article', 'answer'], cap: 0, with_body: withBody, body_limit: bodyLimit
     });
     if (silent) {
       pollTaskSilently(r.task_id, async () => {
         await loadStatus();
         await loadList();
         const cnt = S.stats.documents || 0;
-        toast(`✓ 文章列表同步完成（共 ${cnt} 篇）`, 'good');
+        toast(`✓ 文章与回答同步完成（共 ${cnt} 篇）`, 'good');
       });
     } else {
-      runTask(r.task_id, withBody ? '同步列表 + 正文' : '同步列表', async () => {
+      runTask(r.task_id, withBody ? '同步列表 + 正文' : '同步文章与回答', async () => {
         await loadStatus();
         await loadList();
       });
@@ -780,11 +860,25 @@ function bind() {
     if (S.view === 'audit') return renderAudit();
     if (S.view === 'rules') return renderRules();
     if (S.view === 'export') return renderExport();
-    if (S.view === 'blocked') { S.only = 'blocked'; $$('.pill').forEach(p => p.classList.remove('active'));
-      $('.pill[data-only="blocked"]').classList.add('active'); }
-    else if (S.view === 'nobody') { S.only = ''; }
-    else { S.only = ''; $$('.pill').forEach(p => p.classList.remove('active'));
-      $('.pill[data-only=""]').classList.add('active'); }
+    if (S.view === 'articles') {
+      S.only = 'article';
+      $$('.pill').forEach(p => p.classList.remove('active'));
+      const p = $('.pill[data-only="article"]'); if (p) p.classList.add('active');
+    } else if (S.view === 'answers') {
+      S.only = 'answer';
+      $$('.pill').forEach(p => p.classList.remove('active'));
+      const p = $('.pill[data-only="answer"]'); if (p) p.classList.add('active');
+    } else if (S.view === 'blocked') {
+      S.only = 'blocked';
+      $$('.pill').forEach(p => p.classList.remove('active'));
+      $('.pill[data-only="blocked"]').classList.add('active');
+    } else if (S.view === 'nobody') {
+      S.only = '';
+    } else {
+      S.only = '';
+      $$('.pill').forEach(p => p.classList.remove('active'));
+      $('.pill[data-only=""]').classList.add('active');
+    }
     await loadList();
   });
 

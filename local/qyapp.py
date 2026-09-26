@@ -35,6 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 from urllib.parse import parse_qs, unquote, urlparse
+import urllib.request
 
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
@@ -308,12 +309,15 @@ class Workbench:
             snap = self.store.latest_snapshot(str(r["doc_id"]))
             chk = self.store.latest_check(str(r["doc_id"]))
             out.append({
-                "doc_id": r["doc_id"], "kind": r.get("kind"),
+                "doc_id": r["doc_id"], "kind": r.get("kind") or "article",
                 "title": title,
                 "title_original": r.get("title_original"),
                 "has_brand": "清一新教育" in title,
                 "image_count": r.get("image_count"),
                 "body_len": r.get("body_len"),
+                "comment_count": r.get("comment_count") or 0,
+                "voteup_count": r.get("voteup_count") or 0,
+                "url": r.get("url") or "",
                 "check_status": r.get("check_status") or "unchecked",
                 "check_hits": r.get("check_hits") or 0,
                 "upload_status": r.get("upload_status") or "untouched",
@@ -340,9 +344,14 @@ class Workbench:
         body = (snap or {}).get("content") or ""
         imgs = qs.image_manifest(body)
         chk = self.store.latest_check(doc_id)
+        kind = doc.get("kind") or "article"
+        url = doc.get("url") or (f"https://www.zhihu.com/answer/{doc_id}" if kind == "answer" else f"https://zhuanlan.zhihu.com/p/{doc_id}")
         return {
             "doc": dict(doc),
             "title": title,
+            "kind": kind,
+            "comment_count": doc.get("comment_count") or 0,
+            "voteup_count": doc.get("voteup_count") or 0,
             "body_html": body,
             "text": qc.to_text(body),
             "has_body": bool(snap),
@@ -361,8 +370,61 @@ class Workbench:
             "revisions": self.store.list_revisions(doc_id, 200),
             "timeline": self.store.timeline(doc_id, 60),
             "consistency": self.store.consistency_report(doc_id),
-            "url": doc.get("url") or f"https://zhuanlan.zhihu.com/p/{doc_id}",
+            "url": url,
         }
+
+    # ---------------- 评论拉取 ---------------- #
+
+    def comments(self, doc_id: str, limit: int = 30, offset: str = "") -> Dict[str, Any]:
+        """从知乎接口拉取当前文章/回答的真实读者评论。"""
+        doc = self.store.get_document(doc_id)
+        kind = (doc.get("kind") if doc else None) or "article"
+        base_endpoint = "answers" if kind == "answer" else "articles"
+        url = f"https://www.zhihu.com/api/v4/comment_v5/{base_endpoint}/{doc_id}/root_comment?order_by=score&limit={limit}&offset={offset}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        }
+        if self._cookie:
+            headers["Cookie"] = self._cookie
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                counts = data.get("counts") or {}
+                raw_list = data.get("data") or []
+                comments_list = []
+                for c in raw_list:
+                    author = c.get("author") or {}
+                    ch_list = []
+                    for ch in (c.get("child_comments") or []):
+                        ch_author = ch.get("author") or {}
+                        ch_list.append({
+                            "id": ch.get("id"),
+                            "author_name": ch_author.get("name") or "知乎网友",
+                            "avatar_url": ch_author.get("avatar_url") or "",
+                            "content": ch.get("content") or "",
+                            "created_time": ch.get("created_time"),
+                            "created_text": _hhmmss(ch.get("created_time")),
+                            "vote_count": ch.get("vote_count") or 0,
+                        })
+                    comments_list.append({
+                        "id": c.get("id"),
+                        "author_name": author.get("name") or "知乎网友",
+                        "avatar_url": author.get("avatar_url") or "",
+                        "content": c.get("content") or "",
+                        "created_time": c.get("created_time"),
+                        "created_text": _hhmmss(c.get("created_time")),
+                        "vote_count": c.get("vote_count") or 0,
+                        "child_comments": ch_list,
+                    })
+                return {
+                    "ok": True,
+                    "doc_id": doc_id,
+                    "total_counts": counts.get("total_counts", len(comments_list)),
+                    "comments": comments_list,
+                }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "doc_id": doc_id, "comments": []}
 
     # ---------------- 敏感检查 ---------------- #
 
@@ -840,6 +902,10 @@ class Handler(BaseHTTPRequestHandler):
                                           "why": r.why, "fix": r.fix,
                                           "scope": r.scope}
                                          for r in qc.RULES]})
+
+        m = re.match(r"^/api/article/([^/]+)/comments$", p)
+        if m:
+            return self._json(wb.comments(m.group(1), int(g("limit", "30") or 30), g("offset", "")))
 
         m = re.match(r"^/api/article/([^/]+)$", p)
         if m:

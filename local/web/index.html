@@ -22,7 +22,13 @@
 
     <div class="nav-group">内容</div>
     <button class="nav-item active" data-view="library">
-      <span>文章库</span><em id="n-docs">0</em>
+      <span>全部内容</span><em id="n-docs">0</em>
+    </button>
+    <button class="nav-item" data-view="articles">
+      <span>专栏文章</span><em id="n-articles">0</em>
+    </button>
+    <button class="nav-item" data-view="answers">
+      <span>知乎回答</span><em id="n-answers">0</em>
     </button>
     <button class="nav-item" data-view="blocked">
       <span>待处理</span><em id="n-blocked" class="em-danger">0</em>
@@ -71,6 +77,8 @@
       </div>
       <div class="pills" id="filters">
         <button class="pill active" data-only="">全部</button>
+        <button class="pill" data-only="article">文章</button>
+        <button class="pill" data-only="answer">回答</button>
         <button class="pill" data-only="blocked">阻断</button>
         <button class="pill" data-only="dirty">待上传</button>
         <button class="pill" data-only="no_brand">无署名</button>

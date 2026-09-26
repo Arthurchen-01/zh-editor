@@ -145,9 +145,24 @@ async function loadStatus() {
     $('#who-text').textContent = d.logged_in ? '凭证异常' : '未登录';
   }
   $('#btn-login').textContent = d.logged_in ? '更换 Cookie' : '填入 Cookie';
-  $('#mode-hint').textContent = d.allow_write
-    ? '可写回知乎'
-    : '只读模式 · 改动不会上传';
+  const modeHint = $('#mode-hint');
+  if (modeHint) {
+    modeHint.innerHTML = d.allow_write
+      ? `<span class="badge" id="btn-toggle-write" style="cursor:pointer;background:#fee2e2;color:#b91c1c;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600">⚠️ 允许写回知乎 (点击切回只读)</span>`
+      : `<span class="badge" id="btn-toggle-write" style="cursor:pointer;background:#f1f5f9;color:#475569;padding:3px 8px;border-radius:4px;font-size:11px">🔒 只读保护 (点击解锁写回)</span>`;
+    const btnToggle = $('#btn-toggle-write');
+    if (btnToggle) {
+      btnToggle.onclick = async () => {
+        try {
+          const res = await api('/api/mode/toggle_write');
+          S.status.allow_write = res.allow_write;
+          toast(res.allow_write ? '已开启【允许写回知乎】模式' : '已恢复【只读保护】模式', res.allow_write ? 'warn' : 'good');
+          await loadStatus();
+          if (S.tab === 'edit') renderDetail();
+        } catch (e) { toast('切换模式失败: ' + e.message, 'bad'); }
+      };
+    }
+  }
   try {
     const ac = await api('/api/ai/config');
     S.aiConfig = ac.config || {};
@@ -372,22 +387,31 @@ function renderEdit() {
   const canWrite = S.status && S.status.allow_write;
   return `
     <div class="field">
-      <label>标题</label>
-      <input type="text" id="ed-title" value="${esc(d.title || '')}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <label style="margin:0;font-weight:600">标题</label>
+        <span style="font-size:11.5px;color:var(--text-2)">自定义修改标题，保存后自动留存快照</span>
+      </div>
+      <input type="text" id="ed-title" value="${esc(d.title || '')}" style="font-size:14px;font-weight:600">
     </div>
     <div class="field">
-      <label>正文 HTML（图片用 &lt;img&gt; 标签，原样保留即可）</label>
-      <textarea id="ed-body" spellcheck="false">${esc(d.body_html || '')}</textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <label style="margin:0;font-weight:600">正文内容 / HTML（保留 &lt;img&gt; 标签即保留图片）</label>
+        <button class="btn mini" id="ed-live-preview" style="font-size:11.5px">👁️ 实时排版预览</button>
+      </div>
+      <textarea id="ed-body" spellcheck="false" style="min-height:220px;font-family:var(--mono);font-size:13px;line-height:1.6">${esc(d.body_html || '')}</textarea>
+      <div id="ed-preview-box" style="display:none;margin-top:10px;padding:16px;background:var(--bg-code);border:1px solid var(--border);border-radius:var(--r);max-height:300px;overflow-y:auto"></div>
     </div>
-    <div class="note">
-      保存前系统会自动做三件事：① 存一份 <b>pre_upload</b> 快照（永不覆盖）；
-      ② 对比图片清单，<b>丢图就中止</b>；③ 逐字记录改动，保存后回读线上复核。
-      ${canWrite ? '' : '<br><br><b>当前是只读模式</b>，保存按钮不会写回知乎。'}
+    <div class="note" style="margin-top:10px;line-height:1.6">
+      💡 <b>自定义修改与保存说明</b>：<br>
+      ① 点击「💾 保存为本地草稿」仅安全保存在本地数据库，生成新版本快照并记录修改历史，随时可多次编辑/AI质检；<br>
+      ② 若要写回知乎线上，系统会自动存一份永久 <b>pre_upload</b> 基准快照并对齐图片清单，丢图自动拦截。<br>
+      <b>当前模式</b>：${canWrite ? '<span style="color:var(--danger);font-weight:600">⚠️ 已解锁知乎写回权限</span>' : '<span style="color:var(--ok);font-weight:600">🔒 只读保护中（修改仅安全保存在本地）</span>'}
     </div>
-    <div class="row" style="display:flex;gap:8px;margin-top:14px;">
-      <button class="btn" id="ed-preview">预览改动</button>
-      <button class="btn" id="ed-save">保存到知乎草稿</button>
-      <button class="btn primary" id="ed-publish">保存并发布</button>
+    <div class="row" style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn primary" id="ed-save-local" style="font-weight:700">💾 保存为本地草稿</button>
+      <button class="btn" id="ed-preview">🔍 差异对比</button>
+      <button class="btn" id="ed-save" style="${canWrite ? 'color:var(--danger);border-color:var(--danger)' : ''}">☁️ 保存到知乎草稿</button>
+      <button class="btn" id="ed-publish" style="${canWrite ? 'background:var(--danger);color:#fff;border-color:var(--danger)' : ''}">🚀 保存并直接发布</button>
     </div>`;
 }
 
@@ -511,14 +535,59 @@ function bindTab() {
       长度 ${fmtNum(oldB.length)} → ${fmtNum(newB.length)}；
       图片 ${oi} → ${ni} ${ni < oi ? '<b style="color:var(--danger)">（会丢图，保存会被拦下）</b>' : ''}
     </span></div>`);
-    openModal(`<h2>改动预览</h2><p class="sub">还没有写入任何地方。</p>
+    openModal(`<h2>改动差异对比</h2><p class="sub">尚未写入知乎或本地数据库。</p>
       <div class="diff">${rows.join('')}</div>
       <div class="row"><button class="btn" onclick="closeModal()">知道了</button></div>`);
   };
+
+  const btnSaveLocal = $('#ed-save-local');
+  if (btnSaveLocal) btnSaveLocal.onclick = async () => {
+    const newTitle = t.value.trim();
+    const newBody = b.value.trim();
+    if (!newTitle) return toast('标题不能为空', 'bad');
+    try {
+      const r = await api('/api/save_local', {
+        doc_id: S.cur.doc.doc_id, title: newTitle, body_html: newBody
+      });
+      if (!r.changed) return toast('内容未变动，无需保存', 'good');
+      toast(`✓ 已成功保存到本地草稿（${fmtNum(r.body_len)} 字），生成新快照`, 'good');
+      await openArticle(S.cur.doc.doc_id);
+      await loadStatus();
+      S.tab = 'edit';
+      renderDetail();
+    } catch (e) { toast('保存本地草稿失败: ' + e.message, 'bad'); }
+  };
+
+  const btnLivePreview = $('#ed-live-preview');
+  const previewBox = $('#ed-preview-box');
+  if (btnLivePreview && previewBox) {
+    btnLivePreview.onclick = () => {
+      const isHidden = previewBox.style.display === 'none';
+      if (isHidden) {
+        previewBox.style.display = 'block';
+        previewBox.innerHTML = `<div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)">${esc(t.value)}</div><div class="article">${b.value}</div>`;
+        btnLivePreview.textContent = '🙈 收起排版预览';
+      } else {
+        previewBox.style.display = 'none';
+        btnLivePreview.textContent = '👁️ 实时排版预览';
+      }
+    };
+  }
+
   const doSave = async (publish) => {
+    if (!S.status || !S.status.allow_write) {
+      if (!confirm('⚠️ 当前处于【只读保护模式】。\n\n是否确认一键解锁写回权限，并将此篇内容写回知乎？')) return;
+      try {
+        const toggleRes = await api('/api/mode/toggle_write', { enable: true });
+        S.status.allow_write = toggleRes.allow_write;
+        await loadStatus();
+      } catch (e) {
+        return toast('解锁写回权限失败: ' + e.message, 'bad');
+      }
+    }
     if (!confirm(publish
-      ? '将把标题和正文写回知乎并发布。确定继续？'
-      : '将把标题和正文保存到知乎草稿。确定继续？')) return;
+      ? '将把标题和正文写回知乎并直接发布。确定继续？'
+      : '将把标题和正文保存到知乎草稿箱。确定继续？')) return;
     try {
       const r = await api('/api/save', {
         doc_id: S.cur.doc.doc_id, title: t.value,
@@ -526,11 +595,11 @@ function bindTab() {
       });
       if (!r.changed) return toast('内容没有变化', 'good');
       const v = r.verify || {};
-      toast(v.ok ? '已写入并复核通过' : '已写入，但复核不一致：' + (v.why || ''),
+      toast(v.ok ? '✓ 已写入知乎并复核通过！' : '已写入，但复核不一致：' + (v.why || ''),
         v.ok ? 'good' : 'bad');
       await openArticle(S.cur.doc.doc_id);
       await loadStatus();
-    } catch (e) { toast('保存失败：' + e.message, 'bad'); }
+    } catch (e) { toast('保存到知乎失败：' + e.message, 'bad'); }
   };
   if (save) save.onclick = () => doSave(false);
   if (pub) pub.onclick = () => doSave(true);

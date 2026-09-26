@@ -592,6 +592,44 @@ class Workbench:
         self.store.add_snapshot(doc_id, title, body_html, "manual")
         return {"ok": True, "doc_id": doc_id, "title": title, "body_len": len(body_html)}
 
+    def save_local(self, doc_id: str, title: str, body_html: str) -> Dict[str, Any]:
+        """将用户自定义修改保存到本地草稿（无论是否开启知乎写回权限，均可保存并安全留痕）。"""
+        snap = self.store.latest_snapshot(doc_id)
+        doc = self.store.get_document(doc_id) or {}
+        kind = doc.get("kind") or "article"
+        old_title = (snap or {}).get("title") or doc.get("title_now") or ""
+        old_body = (snap or {}).get("content") or ""
+
+        changed = (old_title != title or old_body != body_html)
+        if changed:
+            if old_title != title:
+                self.store.add_revision(
+                    doc_id, "manual", "title",
+                    old_title, title,
+                    "USER_EDIT", "用户自定义修改标题", "保存为本地草稿", True
+                )
+            if old_body != body_html:
+                self.store.add_revision(
+                    doc_id, "manual", "content",
+                    old_body[:4000], body_html[:4000],
+                    "USER_EDIT", "用户自定义修改正文", "保存为本地草稿", True
+                )
+            self.store.upsert_document(
+                {"id": str(doc_id), "type": kind, "title": title},
+                body_html=body_html
+            )
+            self.store.add_snapshot(doc_id, title, body_html, "manual")
+            self.store.set_document_status(doc_id, upload_status="dirty")
+        return {"ok": True, "changed": changed, "doc_id": doc_id, "title": title, "body_len": len(body_html)}
+
+    def toggle_write(self, enable: Optional[bool] = None) -> Dict[str, Any]:
+        """一键切换只读保护 / 允许写回模式。"""
+        if enable is None:
+            self.allow_write = not self.allow_write
+        else:
+            self.allow_write = bool(enable)
+        return {"ok": True, "allow_write": self.allow_write}
+
     # ---------------- 保存 / 写回 ---------------- #
 
     def save(self, doc_id: str, title: str, body_html: str,
@@ -947,6 +985,12 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/auth/cloud_sync":
             return self._json(wb.auth_cloud_sync())
 
+        if p == "/api/mode/toggle_write":
+            enable = (q.get("enable") or [None])[0]
+            if enable is not None:
+                enable = enable.lower() in ("1", "true", "yes")
+            return self._json(wb.toggle_write(enable))
+
         if p == "/api/system/check_update":
             return self._json(wb.check_update())
 
@@ -1079,6 +1123,15 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"ok": True,
                                "task_id": wb.tasks.spawn("导出 Word", _job)})
+
+        if p == "/api/save_local":
+            return self._json(wb.save_local(
+                str(b.get("doc_id") or ""), str(b.get("title") or ""),
+                str(b.get("body_html") or "")))
+
+        if p == "/api/mode/toggle_write":
+            enable = b.get("enable") if "enable" in b else None
+            return self._json(wb.toggle_write(enable))
 
         if p == "/api/save":
             return self._json({"ok": True, **wb.save(

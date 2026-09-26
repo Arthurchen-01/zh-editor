@@ -101,6 +101,23 @@ function runTask(taskId, title, onDone) {
   tick();
 }
 
+/* 静默后台任务轮询（不弹窗阻塞操作） */
+function pollTaskSilently(taskId, onDone) {
+  const tick = async () => {
+    let t;
+    try {
+      const d = await api('/api/task?id=' + encodeURIComponent(taskId));
+      t = d.task;
+    } catch (_) { return; }
+    if (!t) return;
+    if (t.state === 'running') return setTimeout(tick, 1000);
+    if (t.state === 'done' || t.state === 'error') {
+      if (onDone) onDone(t);
+    }
+  };
+  tick();
+}
+
 /* ─────────────── 状态 ─────────────── */
 
 async function loadStatus() {
@@ -431,16 +448,36 @@ function bindTab() {
 
 /* ─────────────── 动作 ─────────────── */
 
-async function doInspect(withBody) {
-  const bodyLimit = withBody
-    ? Number(prompt('同步正文的篇数上限（0 = 全部，越多越慢）：', '30') || 0) : 0;
-  if (withBody && bodyLimit === null) return;
-  const r = await api('/api/inspect', {
-    kinds: ['article'], cap: 0, with_body: withBody, body_limit: bodyLimit
-  });
-  runTask(r.task_id, withBody ? '同步列表 + 正文' : '同步列表', async () => {
-    await loadStatus(); await loadList();
-  });
+async function doInspect(withBody, silent = false) {
+  let bodyLimit = 0;
+  if (withBody) {
+    const input = prompt('同步正文的篇数上限（0 = 全部，越多越慢）：', '30');
+    if (input === null) return;
+    bodyLimit = Number(input) || 0;
+  }
+  if (silent) {
+    toast('正在自动从知乎同步文章列表…', 'good');
+  }
+  try {
+    const r = await api('/api/inspect', {
+      kinds: ['article'], cap: 0, with_body: withBody, body_limit: bodyLimit
+    });
+    if (silent) {
+      pollTaskSilently(r.task_id, async () => {
+        await loadStatus();
+        await loadList();
+        const cnt = S.stats.documents || 0;
+        toast(`✓ 文章列表同步完成（共 ${cnt} 篇）`, 'good');
+      });
+    } else {
+      runTask(r.task_id, withBody ? '同步列表 + 正文' : '同步列表', async () => {
+        await loadStatus();
+        await loadList();
+      });
+    }
+  } catch (e) {
+    if (!silent) toast('同步启动失败：' + e.message, 'bad');
+  }
 }
 
 async function doCheck(ids, single) {
@@ -860,6 +897,15 @@ async function showLoginModal() {
 
   let qrTimer = null;
 
+  const finishLoginAndSync = async () => {
+    closeModal();
+    const st = await loadStatus();
+    await loadList();
+    if (st && st.logged_in && (!st.stats || !st.stats.documents)) {
+      doInspect(false, true);
+    }
+  };
+
   // 绑定通道 1: 自动读取
   const btnAuto = $('#auth-btn-autodetect');
   const btnCloseBr = $('#auth-btn-close-browser');
@@ -889,7 +935,7 @@ async function showLoginModal() {
       if (res.ok) {
         msgAuto.innerHTML = `<span style="color:var(--ok)">✓ 读取成功（来源: ${esc(res.source || '本机浏览器')}），正在进入工作台…</span>`;
         toast(`已登录：${(res.account && res.account.name) || '成功'}`, 'good');
-        setTimeout(() => { closeModal(); loadStatus(); loadList(); }, 800);
+        setTimeout(finishLoginAndSync, 800);
       } else {
         if (res.locked) {
           msgAuto.innerHTML = `
@@ -949,7 +995,7 @@ async function showLoginModal() {
               clearInterval(qrTimer);
               qrStatus.innerHTML = '<b style="color:var(--ok)">✓ 扫码登录成功！正在进入…</b>';
               toast(`欢迎：${(p.account && p.account.name) || '知乎用户'}`, 'good');
-              setTimeout(() => { closeModal(); loadStatus(); loadList(); }, 800);
+              setTimeout(finishLoginAndSync, 800);
             } else if (p.status === 'expired') {
               clearInterval(qrTimer);
               qrStatus.textContent = '❌ 二维码已过期，请点击刷新。';
@@ -979,7 +1025,7 @@ async function showLoginModal() {
       if (res.ok) {
         msgCloud.innerHTML = '<span style="color:var(--ok)">✓ 云端同步成功！</span>';
         toast(`已从云端同步凭证：${(res.account && res.account.name) || '成功'}`, 'good');
-        setTimeout(() => { closeModal(); loadStatus(); loadList(); }, 800);
+        setTimeout(finishLoginAndSync, 800);
       } else {
         msgCloud.innerHTML = `<span style="color:var(--danger)">${esc(res.error || '云端凭证柜为空')}</span>`;
         btnCloud.disabled = false;
@@ -999,7 +1045,7 @@ async function showLoginModal() {
       if (!r.ok) return toast(r.error || '失败', 'bad');
       const a = r.account || {};
       toast(a.name ? `已登录：${a.name}` : 'Cookie 已保存', 'good');
-      closeModal(); await loadStatus(); await loadList();
+      await finishLoginAndSync();
     } catch (e) { toast('失败：' + e.message, 'bad'); }
   };
 }
@@ -1134,8 +1180,12 @@ async function doApplyUpdate(downloadUrl) {
 (async function boot() {
   bind();
   try {
-    await loadStatus();
+    const st = await loadStatus();
     await loadList();
+    // 若已登录但本地数据库为空（0 篇），自动在后台拉取知乎文章列表，免去手动点击
+    if (st && st.logged_in && (!st.stats || !st.stats.documents)) {
+      doInspect(false, true);
+    }
     // 软件启动时自动执行云端远程更新检查
     checkForUpdates(true);
   } catch (e) {

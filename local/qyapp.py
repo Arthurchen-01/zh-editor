@@ -38,7 +38,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
-for _p in (str(_HERE), str(_ROOT)):
+if _ROOT.name == "_internal":
+    _ROOT = _ROOT.parent
+for _p in (str(_HERE), str(_ROOT), str(_HERE.parent)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -159,6 +161,8 @@ class Workbench:
         self._lock = threading.RLock()
         self._fetcher = qd.ImageFetcher(cache_dir=IMG_CACHE)
         self._cookie = self._read_cookie()
+        self._cached_acct: Dict[str, Any] = {}
+        self._cached_acct_time: float = 0.0
         EXPORT_DIR.mkdir(parents=True, exist_ok=True)
         IMG_CACHE.mkdir(parents=True, exist_ok=True)
 
@@ -261,10 +265,16 @@ class Workbench:
         st = self.store.stats()
         acct: Dict[str, Any] = {}
         if self._cookie:
-            try:
-                acct = self.plane().account() or {}
-            except Exception as exc:  # noqa: BLE001
-                acct = {"error": str(exc)[:200]}
+            now = time.time()
+            if self._cached_acct and (now - self._cached_acct_time < 60):
+                acct = self._cached_acct
+            else:
+                try:
+                    acct = self.plane().account() or {}
+                    self._cached_acct = acct
+                    self._cached_acct_time = now
+                except Exception as exc:  # noqa: BLE001
+                    acct = {"error": str(exc)[:200]}
         return {
             "app": APP_NAME, "version": VERSION,
             "server_url": self.server_url,

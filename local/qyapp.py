@@ -65,7 +65,7 @@ DB_FILE = _ROOT / "data" / "qyedu.db"
 IMG_CACHE = _ROOT / "data" / "imgcache"
 
 APP_NAME = "清一新教育 · 文章工作台"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 
 def _now() -> int:

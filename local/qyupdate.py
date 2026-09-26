@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 DEFAULT_SERVER = "https://zh.samuraiguan.cloud"
 
 
